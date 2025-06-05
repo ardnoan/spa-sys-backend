@@ -56,14 +56,22 @@ func (m *LoggingMiddleware) logActivity(c echo.Context, start time.Time, userID 
 	activity := &models.UserActivityLog{
 		UserID:         &userID,
 		Action:         c.Request().Method,
-		TargetType:     "HTTP_REQUEST",
-		MenuName:       c.Request().URL.Path,
-		Description:    c.Request().Method + " " + c.Request().URL.Path,
-		IPAddress:      c.RealIP(),
-		UserAgent:      c.Request().UserAgent(),
-		ResponseStatus: c.Response().Status,
+		TargetType:     ptrString("HTTP_REQUEST"),
+		MenuName:       ptrString(c.Request().URL.Path),
+		Description:    ptrString(c.Request().Method + " " + c.Request().URL.Path),
+		IPAddress:      ptrString(c.RealIP()),
+		UserAgent:      ptrString(c.Request().UserAgent()),
+		ResponseStatus: ptrInt(c.Response().Status),
 	}
 
 	// This would be called asynchronously to avoid blocking the request
 	m.activityRepo.Create(activity)
+}
+
+func ptrString(s string) *string {
+	return &s
+}
+
+func ptrInt(i int) *int {
+	return &i
 }
