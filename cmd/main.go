@@ -1,4 +1,3 @@
-// main.go
 package main
 
 import (
@@ -11,13 +10,10 @@ import (
 
 func main() {
 	// Load configuration
-	cfg := config.Load() // Now this matches
+	cfg := config.Load()
 
 	// Initialize database
 	config.InitDB(cfg)
-
-	// Auto-migrate your models here if needed
-	// config.DB.AutoMigrate(&models.User{}, &models.Role{}, &models.UserActivityLog{})
 
 	// Create Echo instance
 	e := echo.New()
@@ -26,5 +22,7 @@ func main() {
 	routes.SetupRoutes(e, cfg)
 
 	// Start server
-	log.Fatal(e.Start(":" + cfg.Server.Port))
+	port := ":" + cfg.Server.Port
+	log.Printf("Server starting on port %s", port)
+	log.Fatal(e.Start(port))
 }
