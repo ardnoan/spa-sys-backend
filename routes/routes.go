@@ -1,3 +1,4 @@
+// routes/routes.go
 package routes
 
 import (
@@ -11,11 +12,15 @@ import (
 )
 
 func SetupRoutes(e *echo.Echo, cfg *config.Config) {
+	// Get database instance
+	db := config.GetDB()
+
 	// Initialize repositories
-	userRepo := repositories.NewUserRepository(config.DB)
-	roleRepo := repositories.NewRoleRepository(config.DB)
-	menuRepo := repositories.NewMenuRepository(config.DB)
-	systemRepo := repositories.NewSystemRepository(config.DB)
+	userRepo := repositories.NewUserRepository(db)
+	roleRepo := repositories.NewRoleRepository(db)
+	menuRepo := repositories.NewMenuRepository(db)
+	systemRepo := repositories.NewSystemRepository(db)
+	activityRepo := repositories.NewActivityRepository(db)
 
 	// Initialize services
 	authService := services.NewAuthService(userRepo, cfg)
@@ -33,6 +38,12 @@ func SetupRoutes(e *echo.Echo, cfg *config.Config) {
 
 	// Initialize middleware
 	authMiddleware := middleware.NewAuthMiddleware(authService)
+	loggingMiddleware := middleware.NewLoggingMiddleware(activityRepo)
+
+	// Apply global middleware
+	e.Use(middleware.CORS())
+	e.Use(middleware.RequestLogger())
+	e.Use(loggingMiddleware.ActivityLogger())
 
 	// Health check
 	e.GET("/health", func(c echo.Context) error {
