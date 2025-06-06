@@ -57,14 +57,7 @@ func (h *MenuHandler) GetByID(c echo.Context) error {
 }
 
 func (h *MenuHandler) Create(c echo.Context) error {
-	var req struct {
-		MenuCode  string  `json:"menu_code" validate:"required,max=50"`
-		MenuName  string  `json:"menu_name" validate:"required,max=100"`
-		ParentID  *int    `json:"parent_id"`
-		IconName  *string `json:"icon_name"`
-		Route     *string `json:"route"`
-		MenuOrder int     `json:"menu_order"`
-	}
+	var req models.MenuCreateRequest
 	if err := c.Bind(&req); err != nil {
 		return utils.BadRequestResponse(c, "Invalid request data", err.Error())
 	}
@@ -86,14 +79,7 @@ func (h *MenuHandler) Update(c echo.Context) error {
 		return utils.BadRequestResponse(c, "Invalid menu ID", err.Error())
 	}
 
-	var req struct {
-		MenuCode  string  `json:"menu_code" validate:"required,max=50"`
-		MenuName  string  `json:"menu_name" validate:"required,max=100"`
-		ParentID  *int    `json:"parent_id"`
-		IconName  *string `json:"icon_name"`
-		Route     *string `json:"route"`
-		MenuOrder int     `json:"menu_order"`
-	}
+	var req models.MenuUpdateRequest
 	if err := c.Bind(&req); err != nil {
 		return utils.BadRequestResponse(c, "Invalid request data", err.Error())
 	}
