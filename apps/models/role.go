@@ -57,3 +57,45 @@ type RoleUpdateRequest struct {
 	Description   string `json:"description"`
 	PermissionIDs []int  `json:"permission_ids"`
 }
+
+// Add these request structs to your existing role.go file
+
+// RoleCreateRequest for creating new roles
+type RoleCreateRequest struct {
+	RolesName    string  `json:"roles_name" validate:"required,max=50"`
+	RolesCode    string  `json:"roles_code" validate:"required,max=20"`
+	Description  *string `json:"description"`
+	IsSystemRole bool    `json:"is_system_role"`
+}
+
+// RoleUpdateRequest for updating roles
+type RoleUpdateRequest struct {
+	RolesName   string  `json:"roles_name" validate:"required,max=50"`
+	RolesCode   string  `json:"roles_code" validate:"required,max=20"`
+	Description *string `json:"description"`
+}
+
+// RoleMenuRequest for assigning menus to roles
+type RoleMenuRequest struct {
+	MenuID      int  `json:"menu_id" validate:"required"`
+	CanView     bool `json:"can_view"`
+	CanCreate   bool `json:"can_create"`
+	CanModify   bool `json:"can_modify"`
+	CanDelete   bool `json:"can_delete"`
+	CanUpload   bool `json:"can_upload"`
+	CanDownload bool `json:"can_download"`
+}
+
+// RoleMenu represents the relationship between roles and menus
+type RoleMenu struct {
+	RoleMenuID  int  `json:"role_menu_id" db:"role_menu_id"`
+	RoleID      int  `json:"role_id" db:"role_id"`
+	MenuID      int  `json:"menu_id" db:"menu_id"`
+	CanView     bool `json:"can_view" db:"can_view"`
+	CanCreate   bool `json:"can_create" db:"can_create"`
+	CanModify   bool `json:"can_modify" db:"can_modify"`
+	CanDelete   bool `json:"can_delete" db:"can_delete"`
+	CanUpload   bool `json:"can_upload" db:"can_upload"`
+	CanDownload bool `json:"can_download" db:"can_download"`
+	BaseModel
+}

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"v01_system_backend/apps/models"
 	"v01_system_backend/apps/services"
 	"v01_system_backend/apps/utils"
 
@@ -63,13 +64,7 @@ func (h *SystemHandler) GetDepartments(c echo.Context) error {
 }
 
 func (h *SystemHandler) CreateDepartment(c echo.Context) error {
-	var req struct {
-		DepartmentName string  `json:"department_name" validate:"required,max=100"`
-		DepartmentCode string  `json:"department_code" validate:"required,max=20"`
-		ParentID       *int    `json:"parent_id"`
-		ManagerID      *int    `json:"manager_id"`
-		Description    *string `json:"description"`
-	}
+	var req models.DepartmentCreateRequest
 	if err := c.Bind(&req); err != nil {
 		return utils.BadRequestResponse(c, "Invalid request data", err.Error())
 	}

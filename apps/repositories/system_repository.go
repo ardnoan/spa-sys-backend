@@ -13,20 +13,12 @@ type SystemRepository struct {
 	db *sqlx.DB
 }
 
-type ActivityRepository struct {
-	db *sqlx.DB
-}
-
 func NewSystemRepository(db *sqlx.DB) *SystemRepository {
 	return &SystemRepository{db: db}
 }
 
-func NewActivityRepository(db *sqlx.DB) *ActivityRepository {
-	return &ActivityRepository{db: db}
-}
-
 // System Settings Methods
-func (r *SystemRepository) GetSettings(pagination *models.PaginationRequest) ([]models.SystemSetting, int, error) {
+func (r *SystemRepository) GetAll(pagination *models.PaginationRequest) ([]models.SystemSetting, int, error) {
 	var settings []models.SystemSetting
 	var totalRows int
 
@@ -77,7 +69,7 @@ func (r *SystemRepository) GetSettings(pagination *models.PaginationRequest) ([]
 	return settings, totalRows, nil
 }
 
-func (r *SystemRepository) GetSettingByKey(key string) (*models.SystemSetting, error) {
+func (r *SystemRepository) GetByKey(key string) (*models.SystemSetting, error) {
 	var setting models.SystemSetting
 	query := `
 		SELECT system_id, setting_key, setting_value, setting_type, description,
@@ -94,7 +86,7 @@ func (r *SystemRepository) GetSettingByKey(key string) (*models.SystemSetting, e
 	return &setting, nil
 }
 
-func (r *SystemRepository) CreateSetting(setting *models.SystemSetting, createdBy int) (*models.SystemSetting, error) {
+func (r *SystemRepository) Create(req *models.SystemSettingCreateRequest, createdBy int) (*models.SystemSetting, error) {
 	var systemID int
 	query := `
 		INSERT INTO system_settings (setting_key, setting_value, setting_type, 
@@ -102,51 +94,35 @@ func (r *SystemRepository) CreateSetting(setting *models.SystemSetting, createdB
 		VALUES ($1, $2, $3, $4, $5, $6) RETURNING system_id`
 
 	if err := r.db.Get(&systemID, query,
-		setting.SettingKey, setting.SettingValue, setting.SettingType,
-		setting.Description, setting.IsPublic, createdBy); err != nil {
+		req.SettingKey, req.SettingValue, req.SettingType,
+		req.Description, req.IsPublic, createdBy); err != nil {
 		return nil, err
 	}
 
-	return r.GetSettingByID(systemID)
+	return r.GetByID(systemID)
 }
 
-func (r *SystemRepository) GetSettingByID(id int) (*models.SystemSetting, error) {
-	var setting models.SystemSetting
-	query := `
-		SELECT system_id, setting_key, setting_value, setting_type, description,
-			   is_public, is_active, created_at, created_by, updated_at, updated_by
-		FROM system_settings WHERE system_id = $1 AND is_active = true`
-
-	if err := r.db.Get(&setting, query, id); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	return &setting, nil
-}
-
-func (r *SystemRepository) UpdateSetting(key string, value string, updatedBy int) error {
+func (r *SystemRepository) Update(key string, req *models.SystemSettingUpdateRequest, updatedBy int) (*models.SystemSetting, error) {
 	query := `
 		UPDATE system_settings SET 
-			setting_value = $1, updated_by = $2, updated_at = CURRENT_TIMESTAMP
-		WHERE setting_key = $3 AND is_active = true`
+			setting_value = $1, setting_type = $2, description = $3, 
+			is_public = $4, updated_by = $5, updated_at = CURRENT_TIMESTAMP
+		WHERE setting_key = $6 AND is_active = true`
 
-	result, err := r.db.Exec(query, value, updatedBy, key)
+	result, err := r.db.Exec(query, req.SettingValue, req.SettingType, req.Description, req.IsPublic, updatedBy, key)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		return sql.ErrNoRows
+		return nil, sql.ErrNoRows
 	}
 
-	return nil
+	return r.GetByKey(key)
 }
 
-func (r *SystemRepository) DeleteSetting(key string, deletedBy int) error {
+func (r *SystemRepository) Delete(key string, deletedBy int) error {
 	query := `
 		UPDATE system_settings SET 
 			is_active = false, updated_by = $1, updated_at = CURRENT_TIMESTAMP
@@ -165,82 +141,101 @@ func (r *SystemRepository) DeleteSetting(key string, deletedBy int) error {
 	return nil
 }
 
-// Activity Log Methods
-func (r *ActivityRepository) Create(activity *models.UserActivityLog) error {
+func (r *SystemRepository) GetByID(id int) (*models.SystemSetting, error) {
+	var setting models.SystemSetting
 	query := `
-		INSERT INTO users_activity_logs (user_id, session_id, action, target_type,
-									   target_id, menu_name, description, ip_address,
-									   user_agent, request_data, response_status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
+		SELECT system_id, setting_key, setting_value, setting_type, description,
+			   is_public, is_active, created_at, created_by, updated_at, updated_by
+		FROM system_settings WHERE system_id = $1 AND is_active = true`
 
-	_, err := r.db.Exec(query,
-		activity.UserID, activity.SessionID, activity.Action, activity.TargetType,
-		activity.TargetID, activity.MenuName, activity.Description, activity.IPAddress,
-		activity.UserAgent, activity.RequestData, activity.ResponseStatus)
+	if err := r.db.Get(&setting, query, id); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
 
-	return err
+	return &setting, nil
 }
 
-func (r *ActivityRepository) GetByUser(userID int, pagination *models.PaginationRequest) ([]models.UserActivityLog, int, error) {
-	var activities []models.UserActivityLog
-	var totalRows int
+func (r *SystemRepository) GetPublicSettings() ([]*models.SystemSetting, error) {
+	var settings []*models.SystemSetting
+	query := `
+		SELECT system_id, setting_key, setting_value, setting_type, description,
+			   is_public, is_active, created_at, created_by, updated_at, updated_by
+		FROM system_settings WHERE is_public = true AND is_active = true
+		ORDER BY setting_key ASC`
 
-	// Build WHERE clause
-	whereClause := "WHERE user_id = $1"
-	args := []interface{}{userID}
-	argIndex := 2
-
-	if pagination.Search != "" {
-		whereClause += fmt.Sprintf(" AND (action ILIKE $%d OR description ILIKE $%d OR menu_name ILIKE $%d)",
-			argIndex, argIndex+1, argIndex+2)
-		searchPattern := "%" + pagination.Search + "%"
-		args = append(args, searchPattern, searchPattern, searchPattern)
-		argIndex += 3
+	if err := r.db.Select(&settings, query); err != nil {
+		return nil, err
 	}
 
-	// Count total rows
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM users_activity_logs %s", whereClause)
-	if err := r.db.Get(&totalRows, countQuery, args...); err != nil {
-		return nil, 0, err
-	}
-
-	// Build ORDER BY clause
-	orderBy := "ORDER BY created_at DESC"
-	if pagination.SortBy != "" {
-		validSortFields := map[string]string{
-			"action":     "action",
-			"created_at": "created_at",
-		}
-		if field, exists := validSortFields[pagination.SortBy]; exists {
-			orderBy = fmt.Sprintf("ORDER BY %s %s", field, strings.ToUpper(pagination.SortDir))
-		}
-	}
-
-	// Main query
-	query := fmt.Sprintf(`
-		SELECT logs_id, user_id, session_id, action, target_type, target_id,
-			   menu_name, description, ip_address, user_agent, request_data,
-			   response_status, created_at
-		FROM users_activity_logs %s %s
-		LIMIT $%d OFFSET $%d`, whereClause, orderBy, argIndex, argIndex+1)
-
-	args = append(args, pagination.GetLimit(), pagination.GetOffset())
-
-	if err := r.db.Select(&activities, query, args...); err != nil {
-		return nil, 0, err
-	}
-
-	return activities, totalRows, nil
+	return settings, nil
 }
 
-// System models for settings
-type SystemSetting struct {
-	SystemID     int     `json:"system_id" db:"system_id"`
-	SettingKey   string  `json:"setting_key" db:"setting_key"`
-	SettingValue *string `json:"setting_value" db:"setting_value"`
-	SettingType  string  `json:"setting_type" db:"setting_type"`
-	Description  *string `json:"description" db:"description"`
-	IsPublic     bool    `json:"is_public" db:"is_public"`
-	IsActive     bool    `json:"is_active" db:"is_active"`
-	models.BaseModel
+// User Status Methods
+func (r *SystemRepository) GetUserStatuses() ([]models.UserStatus, error) {
+	var statuses []models.UserStatus
+	query := `
+		SELECT users_application_status_id, status_code, status_name, description,
+			   is_active, created_at, created_by, updated_at, updated_by
+		FROM users_application_status WHERE is_active = true
+		ORDER BY status_name ASC`
+
+	if err := r.db.Select(&statuses, query); err != nil {
+		return nil, err
+	}
+
+	return statuses, nil
+}
+
+// Department Methods
+func (r *SystemRepository) GetDepartments() ([]models.Department, error) {
+	var departments []models.Department
+	query := `
+		SELECT department_id, department_name, department_code, parent_id,
+			   manager_id, description, is_active, created_at, created_by,
+			   updated_at, updated_by
+		FROM departments WHERE is_active = true
+		ORDER BY department_name ASC`
+
+	if err := r.db.Select(&departments, query); err != nil {
+		return nil, err
+	}
+
+	return departments, nil
+}
+
+func (r *SystemRepository) CreateDepartment(req *models.DepartmentCreateRequest, createdBy int) (*models.Department, error) {
+	var departmentID int
+	query := `
+		INSERT INTO departments (department_name, department_code, parent_id,
+							   manager_id, description, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6) RETURNING department_id`
+
+	if err := r.db.Get(&departmentID, query,
+		req.DepartmentName, req.DepartmentCode, req.ParentID,
+		req.ManagerID, req.Description, createdBy); err != nil {
+		return nil, err
+	}
+
+	return r.GetDepartmentByID(departmentID)
+}
+
+func (r *SystemRepository) GetDepartmentByID(id int) (*models.Department, error) {
+	var department models.Department
+	query := `
+		SELECT department_id, department_name, department_code, parent_id,
+			   manager_id, description, is_active, created_at, created_by,
+			   updated_at, updated_by
+		FROM departments WHERE department_id = $1 AND is_active = true`
+
+	if err := r.db.Get(&department, query, id); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return &department, nil
 }

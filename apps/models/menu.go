@@ -36,3 +36,27 @@ type MenuAccess struct {
 type UserMenuResponse struct {
 	Menus []Menu `json:"menus"`
 }
+
+// Add these request structs to your existing menu.go file
+
+// MenuCreateRequest for creating new menus
+type MenuCreateRequest struct {
+	MenuCode  string  `json:"menu_code" validate:"required,max=50"`
+	MenuName  string  `json:"menu_name" validate:"required,max=100"`
+	ParentID  *int    `json:"parent_id"`
+	IconName  *string `json:"icon_name"`
+	Route     *string `json:"route"`
+	MenuOrder int     `json:"menu_order"`
+	IsVisible bool    `json:"is_visible"`
+}
+
+// MenuUpdateRequest for updating menus
+type MenuUpdateRequest struct {
+	MenuCode  string  `json:"menu_code" validate:"required,max=50"`
+	MenuName  string  `json:"menu_name" validate:"required,max=100"`
+	ParentID  *int    `json:"parent_id"`
+	IconName  *string `json:"icon_name"`
+	Route     *string `json:"route"`
+	MenuOrder int     `json:"menu_order"`
+	IsVisible bool    `json:"is_visible"`
+}

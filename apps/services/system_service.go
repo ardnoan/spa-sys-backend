@@ -16,23 +16,15 @@ func NewSystemService(systemRepo *repositories.SystemRepository) *SystemService 
 	return &SystemService{systemRepo: systemRepo}
 }
 
-func (s *SystemService) GetAllSettings(pagination *models.PaginationRequest) (*models.PaginationResponse, error) {
+func (s *SystemService) GetAllSettings() ([]models.SystemSetting, error) {
+	pagination := &models.PaginationRequest{
+		Page:     1,
+		PageSize: 1000, // Get all settings
+	}
 	pagination.SetDefaults()
 
-	settings, totalRows, err := s.systemRepo.GetAll(pagination)
-	if err != nil {
-		return nil, err
-	}
-
-	totalPages := (totalRows + pagination.PageSize - 1) / pagination.PageSize
-
-	return &models.PaginationResponse{
-		Data:       settings,
-		Page:       pagination.Page,
-		PageSize:   pagination.PageSize,
-		TotalRows:  totalRows,
-		TotalPages: totalPages,
-	}, nil
+	settings, _, err := s.systemRepo.GetAll(pagination)
+	return settings, err
 }
 
 func (s *SystemService) GetPublicSettings() ([]*models.SystemSetting, error) {
@@ -50,6 +42,46 @@ func (s *SystemService) GetSettingByKey(key string) (*models.SystemSetting, erro
 	}
 
 	return setting, nil
+}
+
+func (s *SystemService) UpdateSetting(key string, value string, updatedBy int) (*models.SystemSetting, error) {
+	// Check if setting exists
+	existingSetting, err := s.systemRepo.GetByKey(key)
+	if err != nil {
+		return nil, err
+	}
+	if existingSetting == nil {
+		return nil, errors.New("setting not found")
+	}
+
+	// Create update request
+	req := &models.SystemSettingUpdateRequest{
+		SettingValue: value,
+		SettingType:  existingSetting.SettingType,
+		Description:  existingSetting.Description,
+		IsPublic:     existingSetting.IsPublic,
+	}
+
+	// Validate setting value based on type
+	if err := s.validateSettingValue(req.SettingValue, req.SettingType); err != nil {
+		return nil, err
+	}
+
+	return s.systemRepo.Update(key, req, updatedBy)
+}
+
+// User Status Methods
+func (s *SystemService) GetUserStatuses() ([]models.UserStatus, error) {
+	return s.systemRepo.GetUserStatuses()
+}
+
+// Department Methods
+func (s *SystemService) GetDepartments() ([]models.Department, error) {
+	return s.systemRepo.GetDepartments()
+}
+
+func (s *SystemService) CreateDepartment(req *models.DepartmentCreateRequest, createdBy int) (*models.Department, error) {
+	return s.systemRepo.CreateDepartment(req, createdBy)
 }
 
 func (s *SystemService) GetSettingValue(key string) (interface{}, error) {
@@ -110,55 +142,6 @@ func (s *SystemService) GetBoolValue(key string, defaultValue bool) bool {
 	}
 
 	return defaultValue
-}
-
-func (s *SystemService) CreateSetting(req *models.SystemSettingCreateRequest, createdBy int) (*models.SystemSetting, error) {
-	// Check if setting key already exists
-	existingSetting, err := s.systemRepo.GetByKey(req.SettingKey)
-	if err != nil {
-		return nil, err
-	}
-	if existingSetting != nil {
-		return nil, errors.New("setting key already exists")
-	}
-
-	// Validate setting value based on type
-	if err := s.validateSettingValue(req.SettingValue, req.SettingType); err != nil {
-		return nil, err
-	}
-
-	return s.systemRepo.Create(req, createdBy)
-}
-
-func (s *SystemService) UpdateSetting(key string, req *models.SystemSettingUpdateRequest, updatedBy int) (*models.SystemSetting, error) {
-	// Check if setting exists
-	existingSetting, err := s.systemRepo.GetByKey(key)
-	if err != nil {
-		return nil, err
-	}
-	if existingSetting == nil {
-		return nil, errors.New("setting not found")
-	}
-
-	// Validate setting value based on type
-	if err := s.validateSettingValue(req.SettingValue, req.SettingType); err != nil {
-		return nil, err
-	}
-
-	return s.systemRepo.Update(key, req, updatedBy)
-}
-
-func (s *SystemService) DeleteSetting(key string, deletedBy int) error {
-	// Check if setting exists
-	setting, err := s.systemRepo.GetByKey(key)
-	if err != nil {
-		return err
-	}
-	if setting == nil {
-		return errors.New("setting not found")
-	}
-
-	return s.systemRepo.Delete(key, deletedBy)
 }
 
 func (s *SystemService) validateSettingValue(value, settingType string) error {

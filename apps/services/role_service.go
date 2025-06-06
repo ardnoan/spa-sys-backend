@@ -191,3 +191,9 @@ func (s *RoleService) GetRolePermissions(roleID int) ([]*models.Permission, erro
 func (s *RoleService) GetRoleMenus(roleID int) ([]*models.RoleMenu, error) {
 	return s.roleRepo.GetRoleMenus(roleID)
 }
+
+// Add this method to your existing RoleService
+func (s *RoleService) GetAllPermissions() ([]models.Permission, error) {
+	// This should call the repository method to get all permissions
+	return s.roleRepo.GetAllPermissions()
+}
