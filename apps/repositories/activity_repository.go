@@ -4,27 +4,34 @@ package repositories
 import (
 	"v01_system_backend/apps/models"
 
-	"gorm.io/gorm"
+	"github.com/jmoiron/sqlx"
 )
 
 type ActivityRepository struct {
-	db *gorm.DB
+	db *sqlx.DB
 }
 
-func NewActivityRepository(db *gorm.DB) *ActivityRepository {
+func NewActivityRepository(db *sqlx.DB) *ActivityRepository {
 	return &ActivityRepository{db: db}
 }
 
 func (r *ActivityRepository) Create(activity *models.UserActivityLog) error {
-	return r.db.Create(activity).Error
+	query := `
+		INSERT INTO user_activity_logs (user_id, action, description, ip_address, user_agent, created_at)
+		VALUES (:user_id, :action, :description, :ip_address, :user_agent, :created_at)`
+
+	_, err := r.db.NamedExec(query, activity)
+	return err
 }
 
 func (r *ActivityRepository) GetByUserID(userID int, limit, offset int) ([]models.UserActivityLog, error) {
 	var activities []models.UserActivityLog
-	err := r.db.Where("user_id = ?", userID).
-		Order("created_at DESC").
-		Limit(limit).
-		Offset(offset).
-		Find(&activities).Error
+	query := `
+		SELECT * FROM user_activity_logs 
+		WHERE user_id = $1 
+		ORDER BY created_at DESC 
+		LIMIT $2 OFFSET $3`
+
+	err := r.db.Select(&activities, query, userID, limit, offset)
 	return activities, err
 }

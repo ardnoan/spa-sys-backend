@@ -7,12 +7,11 @@ import (
 	"os"
 	"strconv"
 
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq" // PostgreSQL driver
 )
 
-var db *gorm.DB // lowercase agar internal, bisa diakses lewat GetDB()
+var db *sqlx.DB // Change from gorm.DB to sqlx.DB
 
 type Config struct {
 	DB     DatabaseConfig
@@ -61,10 +60,10 @@ func Load() *Config {
 	}
 }
 
-// InitDB initializes the database connection using GORM
+// InitDB initializes the database connection using SQLX
 func InitDB(cfg *Config) {
 	dsn := fmt.Sprintf(
-		"host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=Asia/Shanghai",
+		"host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
 		cfg.DB.Host,
 		cfg.DB.User,
 		cfg.DB.Password,
@@ -73,18 +72,21 @@ func InitDB(cfg *Config) {
 	)
 
 	var err error
-	db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
-	})
+	db, err = sqlx.Connect("postgres", dsn)
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
+	}
+
+	// Test the connection
+	if err = db.Ping(); err != nil {
+		log.Fatal("Failed to ping database:", err)
 	}
 
 	log.Println("Database connected successfully")
 }
 
-// GetDB returns the *gorm.DB instance
-func GetDB() *gorm.DB {
+// GetDB returns the *sqlx.DB instance
+func GetDB() *sqlx.DB {
 	return db
 }
 
