@@ -16,16 +16,6 @@ type Role struct {
 	Menus       []MenuAccess `json:"menus,omitempty"`
 }
 
-type Permission struct {
-	PermissionsID  int    `json:"permissions_id" db:"permissions_id"`
-	PermissionCode string `json:"permission_code" db:"permission_code"`
-	PermissionName string `json:"permission_name" db:"permission_name"`
-	Description    string `json:"description" db:"description"`
-	ModuleName     string `json:"module_name" db:"module_name"`
-	IsActive       bool   `json:"is_active" db:"is_active"`
-	BaseModel
-}
-
 type RolePermission struct {
 	RolePermissionID int       `json:"role_permission_id" db:"role_permission_id"`
 	RoleID           int       `json:"role_id" db:"role_id"`
@@ -44,35 +34,21 @@ type UserRole struct {
 	IsActive   bool      `json:"is_active" db:"is_active"`
 }
 
-type RoleCreateRequest struct {
-	RolesName     string `json:"roles_name" validate:"required,max=50"`
-	RolesCode     string `json:"roles_code" validate:"required,max=20"`
-	Description   string `json:"description"`
-	PermissionIDs []int  `json:"permission_ids"`
-}
-
-type RoleUpdateRequest struct {
-	RolesName     string `json:"roles_name" validate:"required,max=50"`
-	RolesCode     string `json:"roles_code" validate:"required,max=20"`
-	Description   string `json:"description"`
-	PermissionIDs []int  `json:"permission_ids"`
-}
-
-// Add these request structs to your existing role.go file
-
 // RoleCreateRequest for creating new roles
 type RoleCreateRequest struct {
-	RolesName    string  `json:"roles_name" validate:"required,max=50"`
-	RolesCode    string  `json:"roles_code" validate:"required,max=20"`
-	Description  *string `json:"description"`
-	IsSystemRole bool    `json:"is_system_role"`
+	RolesName     string  `json:"roles_name" validate:"required,max=50"`
+	RolesCode     string  `json:"roles_code" validate:"required,max=20"`
+	Description   *string `json:"description"`
+	IsSystemRole  bool    `json:"is_system_role"`
+	PermissionIDs []int   `json:"permission_ids"`
 }
 
 // RoleUpdateRequest for updating roles
 type RoleUpdateRequest struct {
-	RolesName   string  `json:"roles_name" validate:"required,max=50"`
-	RolesCode   string  `json:"roles_code" validate:"required,max=20"`
-	Description *string `json:"description"`
+	RolesName     string  `json:"roles_name" validate:"required,max=50"`
+	RolesCode     string  `json:"roles_code" validate:"required,max=20"`
+	Description   *string `json:"description"`
+	PermissionIDs []int   `json:"permission_ids"`
 }
 
 // RoleMenuRequest for assigning menus to roles

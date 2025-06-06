@@ -33,16 +33,3 @@ type SystemSettingUpdateRequest struct {
 	Description  *string `json:"description"`
 	IsPublic     bool    `json:"is_public"`
 }
-
-// UserStatus represents user application status
-type UserStatus struct {
-	StatusID    int        `json:"status_id" db:"users_application_status_id"`
-	StatusCode  string     `json:"status_code" db:"status_code"`
-	StatusName  string     `json:"status_name" db:"status_name"`
-	Description *string    `json:"description" db:"description"`
-	IsActive    bool       `json:"is_active" db:"is_active"`
-	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
-	CreatedBy   string     `json:"created_by" db:"created_by"`
-	UpdatedAt   *time.Time `json:"updated_at" db:"updated_at"`
-	UpdatedBy   *string    `json:"updated_by" db:"updated_by"`
-}

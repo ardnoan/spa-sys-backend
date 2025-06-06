@@ -233,3 +233,111 @@ func (r *RoleRepository) GetAllPermissions() ([]models.Permission, error) {
 
 	return permissions, nil
 }
+
+// Tambahkan method-method yang hilang di role_repository.go
+
+func (r *RoleRepository) GetByName(name string) (*models.Role, error) {
+	var role models.Role
+	query := `SELECT roles_id, roles_name, roles_code FROM users_roles WHERE roles_name = $1 AND is_active = true`
+
+	if err := r.db.Get(&role, query, name); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return &role, nil
+}
+
+func (r *RoleRepository) GetUserCountByRole(roleID int) (int, error) {
+	var count int
+	query := `SELECT COUNT(*) FROM user_roles WHERE role_id = $1 AND is_active = true`
+
+	if err := r.db.Get(&count, query, roleID); err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
+func (r *RoleRepository) AssignPermissions(roleID int, permissionIDs []int, assignedBy int) error {
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Remove existing permissions
+	_, err = tx.Exec(`UPDATE role_permissions SET is_active = false WHERE role_id = $1`, roleID)
+	if err != nil {
+		return err
+	}
+
+	// Add new permissions
+	for _, permissionID := range permissionIDs {
+		_, err := tx.Exec(`
+			INSERT INTO role_permissions (role_id, permission_id, granted_by)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (role_id, permission_id)
+			DO UPDATE SET is_active = true, granted_by = $3, granted_at = CURRENT_TIMESTAMP`,
+			roleID, permissionID, assignedBy)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *RoleRepository) RemovePermissions(roleID int, permissionIDs []int) error {
+	query := `UPDATE role_permissions SET is_active = false 
+			  WHERE role_id = $1 AND permission_id = ANY($2)`
+
+	_, err := r.db.Exec(query, roleID, permissionIDs)
+	return err
+}
+
+func (r *RoleRepository) AssignMenus(roleID int, menuPermissions []models.RoleMenuRequest, assignedBy int) error {
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Remove existing menu permissions
+	_, err = tx.Exec(`DELETE FROM role_menus WHERE role_id = $1`, roleID)
+	if err != nil {
+		return err
+	}
+
+	// Add new menu permissions
+	for _, mp := range menuPermissions {
+		_, err := tx.Exec(`
+			INSERT INTO role_menus (role_id, menu_id, can_view, can_create, can_modify, 
+								   can_delete, can_upload, can_download, created_by)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			roleID, mp.MenuID, mp.CanView, mp.CanCreate, mp.CanModify,
+			mp.CanDelete, mp.CanUpload, mp.CanDownload, assignedBy)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *RoleRepository) GetRoleMenus(roleID int) ([]models.MenuAccess, error) {
+	var menus []models.MenuAccess
+	query := `
+		SELECT role_menu_id, role_id, menu_id, can_view, can_create, can_modify,
+			   can_delete, can_upload, can_download, created_at, created_by
+		FROM role_menus 
+		WHERE role_id = $1`
+
+	if err := r.db.Select(&menus, query, roleID); err != nil {
+		return nil, err
+	}
+
+	return menus, nil
+}

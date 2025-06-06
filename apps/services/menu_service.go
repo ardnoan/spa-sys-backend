@@ -14,8 +14,23 @@ func NewMenuService(menuRepo *repositories.MenuRepository) *MenuService {
 	return &MenuService{menuRepo: menuRepo}
 }
 
-func (s *MenuService) GetAll() ([]*models.Menu, error) {
-	return s.menuRepo.GetAll()
+func (s *MenuService) GetAll(pagination *models.PaginationRequest) (*models.PaginationResponse, error) {
+	pagination.SetDefaults()
+
+	menus, totalRows, err := s.menuRepo.GetAll(pagination)
+	if err != nil {
+		return nil, err
+	}
+
+	totalPages := (totalRows + pagination.PageSize - 1) / pagination.PageSize
+
+	return &models.PaginationResponse{
+		Data:       menus,
+		Page:       pagination.Page,
+		PageSize:   pagination.PageSize,
+		TotalRows:  totalRows,
+		TotalPages: totalPages,
+	}, nil
 }
 
 func (s *MenuService) GetByID(id int) (*models.Menu, error) {
@@ -31,15 +46,15 @@ func (s *MenuService) GetByID(id int) (*models.Menu, error) {
 	return menu, nil
 }
 
-func (s *MenuService) GetMenuTree() ([]*models.Menu, error) {
+func (s *MenuService) GetMenuTree() ([]models.Menu, error) {
 	return s.menuRepo.GetMenuTree()
 }
 
-func (s *MenuService) GetMenusByRole(roleID int) ([]*models.Menu, error) {
+func (s *MenuService) GetMenusByRole(roleID int) ([]models.Menu, error) {
 	return s.menuRepo.GetMenusByRole(roleID)
 }
 
-func (s *MenuService) GetUserMenus(userID int) ([]*models.Menu, error) {
+func (s *MenuService) GetUserMenus(userID int) ([]models.Menu, error) {
 	return s.menuRepo.GetUserMenus(userID)
 }
 

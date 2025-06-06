@@ -185,11 +185,32 @@ func (s *RoleService) AssignMenus(roleID int, menuPermissions []models.RoleMenuR
 }
 
 func (s *RoleService) GetRolePermissions(roleID int) ([]*models.Permission, error) {
-	return s.roleRepo.GetRolePermissions(roleID)
+	permissions, err := s.roleRepo.GetRolePermissions(roleID)
+	if err != nil {
+		return nil, err
+	}
+	permPtrs := make([]*models.Permission, len(permissions))
+	for i := range permissions {
+		permPtrs[i] = &permissions[i]
+	}
+	return permPtrs, nil
 }
 
 func (s *RoleService) GetRoleMenus(roleID int) ([]*models.RoleMenu, error) {
-	return s.roleRepo.GetRoleMenus(roleID)
+	menuAccesses, err := s.roleRepo.GetRoleMenus(roleID)
+	if err != nil {
+		return nil, err
+	}
+	roleMenus := make([]*models.RoleMenu, len(menuAccesses))
+	for i := range menuAccesses {
+		roleMenus[i] = &models.RoleMenu{
+			// Map fields from menuAccesses[i] to RoleMenu as needed
+			// Example:
+			// MenuID: menuAccesses[i].MenuID,
+			// AccessLevel: menuAccesses[i].AccessLevel,
+		}
+	}
+	return roleMenus, nil
 }
 
 // Add this method to your existing RoleService

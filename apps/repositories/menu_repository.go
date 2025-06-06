@@ -89,6 +89,24 @@ func (r *MenuRepository) GetByID(id int) (*models.Menu, error) {
 	return &menu, nil
 }
 
+func (r *MenuRepository) GetByCode(code string) (*models.Menu, error) {
+	var menu models.Menu
+	query := `
+		SELECT menus_id, menu_code, menu_name, parent_id, icon_name, route,
+			   menu_order, is_visible, is_active, created_at, created_by,
+			   updated_at, updated_by
+		FROM menus WHERE menu_code = $1 AND is_active = true`
+
+	if err := r.db.Get(&menu, query, code); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return &menu, nil
+}
+
 func (r *MenuRepository) GetMenuTree() ([]models.Menu, error) {
 	var menus []models.Menu
 	query := `
@@ -100,6 +118,45 @@ func (r *MenuRepository) GetMenuTree() ([]models.Menu, error) {
 
 	if err := r.db.Select(&menus, query); err != nil {
 		return nil, err
+	}
+
+	return r.buildMenuTree(menus, nil), nil
+}
+
+func (r *MenuRepository) GetMenusByRole(roleID int) ([]models.Menu, error) {
+	var menus []models.Menu
+	query := `
+		SELECT DISTINCT m.menus_id, m.menu_code, m.menu_name, m.parent_id, 
+			   m.icon_name, m.route, m.menu_order, m.is_visible,
+			   rm.can_view, rm.can_create, rm.can_modify, rm.can_delete,
+			   rm.can_upload, rm.can_download
+		FROM menus m
+		INNER JOIN role_menus rm ON m.menus_id = rm.menu_id
+		WHERE rm.role_id = $1 AND m.is_active = true AND m.is_visible = true
+		ORDER BY m.parent_id NULLS FIRST, m.menu_order ASC, m.menu_name ASC`
+
+	rows, err := r.db.Query(query, roleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var menu models.Menu
+		var access models.MenuAccess
+
+		err := rows.Scan(
+			&menu.MenusID, &menu.MenuCode, &menu.MenuName, &menu.ParentID,
+			&menu.IconName, &menu.Route, &menu.MenuOrder, &menu.IsVisible,
+			&access.CanView, &access.CanCreate, &access.CanModify, &access.CanDelete,
+			&access.CanUpload, &access.CanDownload,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		menu.Access = &access
+		menus = append(menus, menu)
 	}
 
 	return r.buildMenuTree(menus, nil), nil
@@ -147,7 +204,22 @@ func (r *MenuRepository) GetUserMenus(userID int) ([]models.Menu, error) {
 	return r.buildMenuTree(menus, nil), nil
 }
 
-func (r *MenuRepository) Create(menu *models.Menu, createdBy int) (*models.Menu, error) {
+func (r *MenuRepository) GetChildren(parentID int) ([]models.Menu, error) {
+	var menus []models.Menu
+	query := `
+		SELECT menus_id, menu_code, menu_name, parent_id, icon_name, route,
+			   menu_order, is_visible, is_active, created_at, created_by,
+			   updated_at, updated_by
+		FROM menus WHERE parent_id = $1 AND is_active = true`
+
+	if err := r.db.Select(&menus, query, parentID); err != nil {
+		return nil, err
+	}
+
+	return menus, nil
+}
+
+func (r *MenuRepository) Create(req *models.MenuCreateRequest, createdBy int) (*models.Menu, error) {
 	var menuID int
 	query := `
 		INSERT INTO menus (menu_code, menu_name, parent_id, icon_name, route, 
@@ -155,15 +227,15 @@ func (r *MenuRepository) Create(menu *models.Menu, createdBy int) (*models.Menu,
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING menus_id`
 
 	if err := r.db.Get(&menuID, query,
-		menu.MenuCode, menu.MenuName, menu.ParentID, menu.IconName,
-		menu.Route, menu.MenuOrder, menu.IsVisible, createdBy); err != nil {
+		req.MenuCode, req.MenuName, req.ParentID, req.IconName,
+		req.Route, req.MenuOrder, req.IsVisible, createdBy); err != nil {
 		return nil, err
 	}
 
 	return r.GetByID(menuID)
 }
 
-func (r *MenuRepository) Update(id int, menu *models.Menu, updatedBy int) (*models.Menu, error) {
+func (r *MenuRepository) Update(id int, req *models.MenuUpdateRequest, updatedBy int) (*models.Menu, error) {
 	query := `
 		UPDATE menus SET 
 			menu_code = $1, menu_name = $2, parent_id = $3, icon_name = $4,
@@ -172,8 +244,8 @@ func (r *MenuRepository) Update(id int, menu *models.Menu, updatedBy int) (*mode
 		WHERE menus_id = $9 AND is_active = true`
 
 	result, err := r.db.Exec(query,
-		menu.MenuCode, menu.MenuName, menu.ParentID, menu.IconName,
-		menu.Route, menu.MenuOrder, menu.IsVisible, updatedBy, id)
+		req.MenuCode, req.MenuName, req.ParentID, req.IconName,
+		req.Route, req.MenuOrder, req.IsVisible, updatedBy, id)
 	if err != nil {
 		return nil, err
 	}
@@ -184,6 +256,25 @@ func (r *MenuRepository) Update(id int, menu *models.Menu, updatedBy int) (*mode
 	}
 
 	return r.GetByID(id)
+}
+
+func (r *MenuRepository) UpdateOrder(id int, newOrder int, updatedBy int) error {
+	query := `
+		UPDATE menus SET 
+			menu_order = $1, updated_by = $2, updated_at = CURRENT_TIMESTAMP
+		WHERE menus_id = $3 AND is_active = true`
+
+	result, err := r.db.Exec(query, newOrder, updatedBy, id)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
 }
 
 func (r *MenuRepository) Delete(id int, deletedBy int) error {

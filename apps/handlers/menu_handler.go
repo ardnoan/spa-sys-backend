@@ -23,7 +23,7 @@ func (h *MenuHandler) GetAll(c echo.Context) error {
 		return utils.BadRequestResponse(c, "Invalid pagination parameters", err.Error())
 	}
 
-	response, err := h.menuService.GetAll()
+	response, err := h.menuService.GetAll(&pagination)
 	if err != nil {
 		return utils.InternalServerErrorResponse(c, "Failed to get menus", err.Error())
 	}
