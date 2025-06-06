@@ -38,19 +38,6 @@ type UserStatus struct {
 	BaseModel
 }
 
-type UserSession struct {
-	SessionID    int        `json:"session_id" db:"session_id"`
-	UserID       int        `json:"user_id" db:"user_id"`
-	SessionToken string     `json:"session_token" db:"session_token"`
-	IPAddress    *string    `json:"ip_address" db:"ip_address"`
-	UserAgent    *string    `json:"user_agent" db:"user_agent"`
-	LoginAt      time.Time  `json:"login_at" db:"login_at"`
-	LogoutAt     *time.Time `json:"logout_at" db:"logout_at"`
-	ExpiresAt    time.Time  `json:"expires_at" db:"expires_at"`
-	IsActive     bool       `json:"is_active" db:"is_active"`
-	CreatedAt    time.Time  `json:"created_at" db:"created_at"`
-}
-
 type UserCreateRequest struct {
 	Username     string `json:"username" validate:"required,min=3,max=50"`
 	Email        string `json:"email" validate:"required,email"`
@@ -74,22 +61,4 @@ type UserUpdateRequest struct {
 	EmployeeID   string `json:"employee_id" validate:"max=20"`
 	Phone        string `json:"phone" validate:"max=20"`
 	RoleIDs      []int  `json:"role_ids"`
-}
-
-type LoginRequest struct {
-	Username string `json:"username" validate:"required"`
-	Password string `json:"password" validate:"required"`
-}
-
-type LoginResponse struct {
-	User         User   `json:"user"`
-	Token        string `json:"token"`
-	RefreshToken string `json:"refresh_token"`
-	ExpiresAt    int64  `json:"expires_at"`
-}
-
-type ChangePasswordRequest struct {
-	CurrentPassword string `json:"current_password" validate:"required"`
-	NewPassword     string `json:"new_password" validate:"required,min=8"`
-	ConfirmPassword string `json:"confirm_password" validate:"required,eqfield=NewPassword"`
 }
