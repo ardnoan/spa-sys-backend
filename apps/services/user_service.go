@@ -1,4 +1,4 @@
-// services/user_service.go
+// apps/services/user_service.go
 package services
 
 import (
@@ -9,11 +9,18 @@ import (
 	"v01_system_backend/apps/utils"
 )
 
+// UserService menghandle business logic untuk operasi user
+// Layer ini berada di antara controller dan repository
+// Bertanggung jawab untuk:
+// - Validasi business rules
+// - Koordinasi antar repository
+// - Data transformation
 type UserService struct {
-	userRepo     *repositories.UserRepository
-	activityRepo *repositories.ActivityRepository
+	userRepo     *repositories.UserRepository     // Repository untuk operasi user
+	activityRepo *repositories.ActivityRepository // Repository untuk logging activity
 }
 
+// NewUserService constructor dengan dependency injection
 func NewUserService(userRepo *repositories.UserRepository, activityRepo *repositories.ActivityRepository) *UserService {
 	return &UserService{
 		userRepo:     userRepo,
@@ -21,35 +28,39 @@ func NewUserService(userRepo *repositories.UserRepository, activityRepo *reposit
 	}
 }
 
-// In user_service.go, update GetUserRoles method:
-func (s *UserService) GetUserRoles(userID int) ([]models.Role, error) {
-	if userID <= 0 {
-		return nil, errors.New("invalid user ID")
-	}
-
-	return s.userRepo.GetUserRoles(userID)
-}
-
+// GetAll mengambil semua user dengan pagination dan filtering
+// BUSINESS LOGIC:
+// 1. Set default values untuk pagination
+// 2. Query data dari repository dengan filter
+// 3. Enrich data dengan user roles
+// 4. Format response dengan pagination metadata
 func (s *UserService) GetAll(pagination *models.PaginationRequest, filters *models.UserFilters) (*models.PaginationResponse, error) {
+	// Set default values jika tidak ada di request
+	// Default: page=1, page_size=10, sort_dir=ASC
 	pagination.SetDefaults()
 
+	// Query users dari database dengan pagination dan filter
 	users, totalRows, err := s.userRepo.GetAll(pagination, filters)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get users: %w", err)
 	}
 
-	// Get roles for each user
+	// Enrich setiap user dengan data roles
+	// Loop untuk menambahkan role information ke setiap user
 	for i := range users {
 		roles, err := s.userRepo.GetUserRoles(users[i].UserAppsID)
 		if err != nil {
-			// Log error but continue
+			// Log error tapi jangan stop process
+			// Bisa pakai logger di sini untuk production
 			continue
 		}
 		users[i].Roles = roles
 	}
 
+	// Hitung total pages untuk pagination
 	totalPages := (totalRows + pagination.PageSize - 1) / pagination.PageSize
 
+	// Return response dengan metadata pagination
 	return &models.PaginationResponse{
 		Data:       users,
 		Page:       pagination.Page,
@@ -59,74 +70,98 @@ func (s *UserService) GetAll(pagination *models.PaginationRequest, filters *mode
 	}, nil
 }
 
+// GetByID mengambil user berdasarkan ID
+// BUSINESS LOGIC:
+// 1. Validasi ID input
+// 2. Query dari repository
+// 3. Handle case user not found
+// 4. Enrich dengan role data
 func (s *UserService) GetByID(id int) (*models.User, error) {
+	// Validasi input ID
 	if id <= 0 {
 		return nil, errors.New("invalid user ID")
 	}
 
+	// Query user dari database
 	user, err := s.userRepo.GetByID(id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
+	// Handle case user tidak ditemukan
 	if user == nil {
 		return nil, errors.New("user not found")
 	}
 
-	// Get user roles
+	// Enrich user dengan role data
 	roles, err := s.userRepo.GetUserRoles(user.UserAppsID)
-	if err == nil {
+	if err == nil { // Hanya assign jika tidak ada error
 		user.Roles = roles
 	}
 
 	return user, nil
 }
 
+// Create membuat user baru
+// BUSINESS LOGIC:
+// 1. Validasi input data
+// 2. Check duplicate username/email
+// 3. Hash password
+// 4. Create user record
+// 5. Assign default roles jika ada
 func (s *UserService) Create(req *models.UserCreateRequest, createdBy int) (*models.User, error) {
-	// Validate request
+	// Validasi business rules untuk create
 	if err := s.validateCreateRequest(req); err != nil {
 		return nil, err
 	}
 
-	// Check duplicates
+	// Check apakah username atau email sudah ada
+	// excludeID = 0 karena ini create baru
 	if err := s.checkDuplicateUser(req.Username, req.Email, 0); err != nil {
 		return nil, err
 	}
 
-	// Hash password
+	// Hash password menggunakan bcrypt
 	hashedPassword, err := utils.HashPassword(req.Password)
 	if err != nil {
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// Create user
+	// Create user record di database
 	user, err := s.userRepo.Create(req, hashedPassword, createdBy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
-	// Assign default roles if specified
+	// Assign default roles jika ada dalam request
 	if len(req.RoleIDs) > 0 {
 		if err := s.userRepo.AssignRoles(user.UserAppsID, req.RoleIDs, createdBy); err != nil {
-			// Log error but don't fail the creation
+			// Log error tapi tidak gagalkan create user
+			// Dalam production, bisa pakai logger
 		}
 	}
 
-	// Get user with roles
+	// Return user dengan role data
 	return s.GetByID(user.UserAppsID)
 }
 
+// Update mengupdate user existing
+// BUSINESS LOGIC:
+// 1. Validasi ID dan input
+// 2. Check user exists
+// 3. Check duplicate untuk username/email baru
+// 4. Update record
 func (s *UserService) Update(id int, req *models.UserUpdateRequest, updatedBy int) (*models.User, error) {
 	if id <= 0 {
 		return nil, errors.New("invalid user ID")
 	}
 
-	// Validate request
+	// Validasi input data
 	if err := s.validateUpdateRequest(req); err != nil {
 		return nil, err
 	}
 
-	// Check if user exists
+	// Check apakah user yang akan diupdate ada
 	existingUser, err := s.userRepo.GetByID(id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
@@ -135,27 +170,33 @@ func (s *UserService) Update(id int, req *models.UserUpdateRequest, updatedBy in
 		return nil, errors.New("user not found")
 	}
 
-	// Check duplicates (excluding current user)
+	// Check duplicate username/email (exclude current user)
 	if err := s.checkDuplicateUser(req.Username, req.Email, id); err != nil {
 		return nil, err
 	}
 
-	// Update user
+	// Update user record
 	user, err := s.userRepo.Update(id, req, updatedBy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update user: %w", err)
 	}
 
-	// Get updated user with roles
+	// Return updated user dengan role data
 	return s.GetByID(user.UserAppsID)
 }
 
+// Delete melakukan soft delete user
+// BUSINESS LOGIC:
+// 1. Validasi ID
+// 2. Check user exists
+// 3. Prevent self deletion
+// 4. Soft delete (set is_active = false)
 func (s *UserService) Delete(id int, deletedBy int) error {
 	if id <= 0 {
 		return errors.New("invalid user ID")
 	}
 
-	// Check if user exists
+	// Check user exists
 	user, err := s.userRepo.GetByID(id)
 	if err != nil {
 		return fmt.Errorf("failed to get user: %w", err)
@@ -164,25 +205,27 @@ func (s *UserService) Delete(id int, deletedBy int) error {
 		return errors.New("user not found")
 	}
 
-	// Prevent self-deletion
+	// Prevent user menghapus dirinya sendiri
 	if id == deletedBy {
 		return errors.New("cannot delete your own account")
 	}
 
+	// Soft delete user
 	return s.userRepo.Delete(id, deletedBy)
 }
 
+// UpdateStatus mengupdate status user (active/inactive/suspended)
 func (s *UserService) UpdateStatus(id int, status string, updatedBy int) error {
 	if id <= 0 {
 		return errors.New("invalid user ID")
 	}
 
-	// Validate status
+	// Validasi status value
 	if !utils.IsValidStatus(status) {
 		return errors.New("invalid status")
 	}
 
-	// Check if user exists
+	// Check user exists
 	user, err := s.userRepo.GetByID(id)
 	if err != nil {
 		return fmt.Errorf("failed to get user: %w", err)
@@ -194,17 +237,23 @@ func (s *UserService) UpdateStatus(id int, status string, updatedBy int) error {
 	return s.userRepo.UpdateStatus(id, status, updatedBy)
 }
 
+// ResetPassword mereset password user
+// BUSINESS LOGIC:
+// 1. Validasi password requirements
+// 2. Hash password baru
+// 3. Simpan ke password history
+// 4. Update password
 func (s *UserService) ResetPassword(id int, newPassword string, updatedBy int) error {
 	if id <= 0 {
 		return errors.New("invalid user ID")
 	}
 
-	// Validate password
+	// Validasi password strength
 	if err := utils.ValidatePassword(newPassword); err != nil {
 		return err
 	}
 
-	// Check if user exists
+	// Check user exists
 	user, err := s.userRepo.GetByID(id)
 	if err != nil {
 		return fmt.Errorf("failed to get user: %w", err)
@@ -213,24 +262,19 @@ func (s *UserService) ResetPassword(id int, newPassword string, updatedBy int) e
 		return errors.New("user not found")
 	}
 
-	// Hash new password
+	// Hash password baru
 	hashedPassword, err := utils.HashPassword(newPassword)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
+	// Update password (repository akan handle password history)
 	return s.userRepo.UpdatePassword(id, hashedPassword, updatedBy)
 }
 
-// User Roles Management
-func (s *UserService) GetUserRoles(userID int) ([]*models.Role, error) {
-	if userID <= 0 {
-		return nil, errors.New("invalid user ID")
-	}
+// === ROLE MANAGEMENT METHODS ===
 
-	return s.userRepo.GetUserRoles(userID)
-}
-
+// AssignRoles assign role ke user
 func (s *UserService) AssignRoles(userID int, roleIDs []int, assignedBy int) error {
 	if userID <= 0 {
 		return errors.New("invalid user ID")
@@ -239,7 +283,7 @@ func (s *UserService) AssignRoles(userID int, roleIDs []int, assignedBy int) err
 		return errors.New("no roles specified")
 	}
 
-	// Check if user exists
+	// Check user exists
 	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
 		return fmt.Errorf("failed to get user: %w", err)
@@ -248,9 +292,11 @@ func (s *UserService) AssignRoles(userID int, roleIDs []int, assignedBy int) err
 		return errors.New("user not found")
 	}
 
+	// Repository akan handle transaction untuk assign roles
 	return s.userRepo.AssignRoles(userID, roleIDs, assignedBy)
 }
 
+// RemoveRoles remove role dari user
 func (s *UserService) RemoveRoles(userID int, roleIDs []int, removedBy int) error {
 	if userID <= 0 {
 		return errors.New("invalid user ID")
@@ -262,7 +308,7 @@ func (s *UserService) RemoveRoles(userID int, roleIDs []int, removedBy int) erro
 	return s.userRepo.RemoveRoles(userID, roleIDs, removedBy)
 }
 
-// User Permissions
+// GetUserPermissions mengambil semua permission user melalui roles
 func (s *UserService) GetUserPermissions(userID int) ([]*models.Permission, error) {
 	if userID <= 0 {
 		return nil, errors.New("invalid user ID")
@@ -271,17 +317,9 @@ func (s *UserService) GetUserPermissions(userID int) ([]*models.Permission, erro
 	return s.userRepo.GetUserPermissions(userID)
 }
 
-// User Activities
-func (s *UserService) GetUserActivities(userID int, pagination *models.PaginationRequest) (*models.PaginationResponse, error) {
-	if userID <= 0 {
-		return nil, errors.New("invalid user ID")
-	}
+// === HELPER METHODS ===
 
-	pagination.SetDefaults()
-	return s.activityRepo.GetUserActivities(userID, pagination)
-}
-
-// Private helper methods
+// validateCreateRequest validasi data untuk create user
 func (s *UserService) validateCreateRequest(req *models.UserCreateRequest) error {
 	if req.Username == "" {
 		return errors.New("username is required")
@@ -301,6 +339,7 @@ func (s *UserService) validateCreateRequest(req *models.UserCreateRequest) error
 	return nil
 }
 
+// validateUpdateRequest validasi data untuk update user
 func (s *UserService) validateUpdateRequest(req *models.UserUpdateRequest) error {
 	if req.Username == "" {
 		return errors.New("username is required")
@@ -314,8 +353,10 @@ func (s *UserService) validateUpdateRequest(req *models.UserUpdateRequest) error
 	return nil
 }
 
+// checkDuplicateUser check duplicate username atau email
+// excludeID untuk mengecualikan user tertentu (untuk update)
 func (s *UserService) checkDuplicateUser(username, email string, excludeID int) error {
-	// Check username
+	// Check username duplicate
 	existingUser, err := s.userRepo.GetByUsername(username)
 	if err != nil {
 		return fmt.Errorf("failed to check username: %w", err)
@@ -324,7 +365,7 @@ func (s *UserService) checkDuplicateUser(username, email string, excludeID int) 
 		return errors.New("username already exists")
 	}
 
-	// Check email
+	// Check email duplicate
 	existingEmail, err := s.userRepo.GetByEmail(email)
 	if err != nil {
 		return fmt.Errorf("failed to check email: %w", err)
