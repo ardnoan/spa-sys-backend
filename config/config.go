@@ -11,12 +11,13 @@ import (
 	_ "github.com/lib/pq" // PostgreSQL driver
 )
 
-var db *sqlx.DB // Change from gorm.DB to sqlx.DB
+var db *sqlx.DB
 
 type Config struct {
-	DB     DatabaseConfig
-	JWT    JWTConfig
-	Server ServerConfig
+	DB       DatabaseConfig
+	JWT      JWTConfig
+	Server   ServerConfig
+	Security SecurityConfig // Tambahkan ini
 }
 
 type DatabaseConfig struct {
@@ -28,8 +29,10 @@ type DatabaseConfig struct {
 }
 
 type JWTConfig struct {
-	Secret string
-	Expire int // hours
+	Secret        string
+	Expire        int    // hours
+	RefreshSecret string // Tambahkan ini
+	RefreshExpire int    // hours - Tambahkan ini
 }
 
 type ServerConfig struct {
@@ -37,9 +40,18 @@ type ServerConfig struct {
 	Env  string
 }
 
+// Tambahkan struct SecurityConfig
+type SecurityConfig struct {
+	MaxLoginAttempts    int
+	LockDurationMinutes int
+}
+
 // Load() memuat environment variable ke struct Config
 func Load() *Config {
 	expire, _ := strconv.Atoi(getEnv("JWT_EXPIRE", "24"))
+	refreshExpire, _ := strconv.Atoi(getEnv("JWT_REFRESH_EXPIRE", "168")) // 7 days default
+	maxAttempts, _ := strconv.Atoi(getEnv("MAX_LOGIN_ATTEMPTS", "5"))
+	lockDuration, _ := strconv.Atoi(getEnv("LOCK_DURATION_MINUTES", "30"))
 
 	return &Config{
 		DB: DatabaseConfig{
@@ -50,12 +62,18 @@ func Load() *Config {
 			Name:     getEnv("DB_NAME", "spa_ardnoan"),
 		},
 		JWT: JWTConfig{
-			Secret: getEnv("JWT_SECRET", "mysecret"),
-			Expire: expire,
+			Secret:        getEnv("JWT_SECRET", "mysecret"),
+			Expire:        expire,
+			RefreshSecret: getEnv("JWT_REFRESH_SECRET", "myrefreshsecret"), // Tambahkan ini
+			RefreshExpire: refreshExpire,                                   // Tambahkan ini
 		},
 		Server: ServerConfig{
 			Port: getEnv("SERVER_PORT", "8080"),
 			Env:  getEnv("APP_ENV", "development"),
+		},
+		Security: SecurityConfig{ // Tambahkan ini
+			MaxLoginAttempts:    maxAttempts,
+			LockDurationMinutes: lockDuration,
 		},
 	}
 }

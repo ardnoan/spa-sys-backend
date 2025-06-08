@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 	"v01_system_backend/apps/models"
 
 	"github.com/jmoiron/sqlx"
@@ -145,101 +146,101 @@ func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
 	return &user, nil
 }
 
-func (r *UserRepository) Create(user *models.UserCreateRequest, hashedPassword string, createdBy int) (*models.User, error) {
-	tx, err := r.db.Beginx()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
+// func (r *UserRepository) Create(user *models.UserCreateRequest, hashedPassword string, createdBy int) (*models.User, error) {
+// 	tx, err := r.db.Beginx()
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	defer tx.Rollback()
 
-	var userID int
-	query := `
-		INSERT INTO users_application (
-			username, email, password_hash, first_name, last_name, 
-			status_id, department_id, employee_id, phone, created_by
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		RETURNING user_apps_id`
+// 	var userID int
+// 	query := `
+// 		INSERT INTO users_application (
+// 			username, email, password_hash, first_name, last_name,
+// 			status_id, department_id, employee_id, phone, created_by
+// 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+// 		RETURNING user_apps_id`
 
-	if err := tx.Get(&userID, query,
-		user.Username, user.Email, hashedPassword, user.FirstName, user.LastName,
-		user.StatusID, user.DepartmentID, user.EmployeeID, user.Phone, createdBy); err != nil {
-		return nil, err
-	}
+// 	if err := tx.Get(&userID, query,
+// 		user.Username, user.Email, hashedPassword, user.FirstName, user.LastName,
+// 		user.StatusID, user.DepartmentID, user.EmployeeID, user.Phone, createdBy); err != nil {
+// 		return nil, err
+// 	}
 
-	// Assign roles if provided
-	if len(user.RoleIDs) > 0 {
-		for _, roleID := range user.RoleIDs {
-			_, err := tx.Exec(`
-				INSERT INTO user_roles (user_id, role_id, assigned_by) 
-				VALUES ($1, $2, $3)`, userID, roleID, createdBy)
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
+// 	// Assign roles if provided
+// 	if len(user.RoleIDs) > 0 {
+// 		for _, roleID := range user.RoleIDs {
+// 			_, err := tx.Exec(`
+// 				INSERT INTO user_roles (user_id, role_id, assigned_by)
+// 				VALUES ($1, $2, $3)`, userID, roleID, createdBy)
+// 			if err != nil {
+// 				return nil, err
+// 			}
+// 		}
+// 	}
 
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
+// 	if err := tx.Commit(); err != nil {
+// 		return nil, err
+// 	}
 
-	return r.GetByID(userID)
-}
+// 	return r.GetByID(userID)
+// }
 
-func (r *UserRepository) Update(id int, user *models.UserUpdateRequest, updatedBy int) (*models.User, error) {
-	tx, err := r.db.Beginx()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
+// func (r *UserRepository) Update(id int, user *models.UserUpdateRequest, updatedBy int) (*models.User, error) {
+// 	tx, err := r.db.Beginx()
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	defer tx.Rollback()
 
-	query := `
-		UPDATE users_application SET 
-			username = $1, email = $2, first_name = $3, last_name = $4,
-			status_id = $5, department_id = $6, employee_id = $7, phone = $8,
-			updated_by = $9, updated_at = CURRENT_TIMESTAMP
-		WHERE user_apps_id = $10 AND is_active = true`
+// 	query := `
+// 		UPDATE users_application SET
+// 			username = $1, email = $2, first_name = $3, last_name = $4,
+// 			status_id = $5, department_id = $6, employee_id = $7, phone = $8,
+// 			updated_by = $9, updated_at = CURRENT_TIMESTAMP
+// 		WHERE user_apps_id = $10 AND is_active = true`
 
-	result, err := tx.Exec(query,
-		user.Username, user.Email, user.FirstName, user.LastName,
-		user.StatusID, user.DepartmentID, user.EmployeeID, user.Phone,
-		updatedBy, id)
-	if err != nil {
-		return nil, err
-	}
+// 	result, err := tx.Exec(query,
+// 		user.Username, user.Email, user.FirstName, user.LastName,
+// 		user.StatusID, user.DepartmentID, user.EmployeeID, user.Phone,
+// 		updatedBy, id)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		return nil, sql.ErrNoRows
-	}
+// 	rowsAffected, _ := result.RowsAffected()
+// 	if rowsAffected == 0 {
+// 		return nil, sql.ErrNoRows
+// 	}
 
-	// Update user roles
-	if user.RoleIDs != nil {
-		// Deactivate existing roles
-		_, err := tx.Exec(`UPDATE user_roles SET is_active = false WHERE user_id = $1`, id)
-		if err != nil {
-			return nil, err
-		}
+// 	// Update user roles
+// 	if user.RoleIDs != nil {
+// 		// Deactivate existing roles
+// 		_, err := tx.Exec(`UPDATE user_roles SET is_active = false WHERE user_id = $1`, id)
+// 		if err != nil {
+// 			return nil, err
+// 		}
 
-		// Add new roles
-		for _, roleID := range user.RoleIDs {
-			_, err := tx.Exec(`
-				INSERT INTO user_roles (user_id, role_id, assigned_by) 
-				VALUES ($1, $2, $3)
-				ON CONFLICT (user_id, role_id) 
-				DO UPDATE SET is_active = true, assigned_by = $3, assigned_at = CURRENT_TIMESTAMP`,
-				id, roleID, updatedBy)
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
+// 		// Add new roles
+// 		for _, roleID := range user.RoleIDs {
+// 			_, err := tx.Exec(`
+// 				INSERT INTO user_roles (user_id, role_id, assigned_by)
+// 				VALUES ($1, $2, $3)
+// 				ON CONFLICT (user_id, role_id)
+// 				DO UPDATE SET is_active = true, assigned_by = $3, assigned_at = CURRENT_TIMESTAMP`,
+// 				id, roleID, updatedBy)
+// 			if err != nil {
+// 				return nil, err
+// 			}
+// 		}
+// 	}
 
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
+// 	if err := tx.Commit(); err != nil {
+// 		return nil, err
+// 	}
 
-	return r.GetByID(id)
-}
+// 	return r.GetByID(id)
+// }
 
 func (r *UserRepository) Delete(id int, deletedBy int) error {
 	query := `
@@ -327,4 +328,237 @@ func (r *UserRepository) GetUserRoles(userID int) ([]models.Role, error) {
 	}
 
 	return roles, nil
+}
+
+// Add to apps/repositories/user_repository.go
+
+func (r *UserRepository) SavePasswordResetToken(userID int, token string, expiresAt time.Time) error {
+	query := `
+        INSERT INTO password_reset_tokens (user_id, token, expires_at, is_used, created_at)
+        VALUES ($1, $2, $3, false, CURRENT_TIMESTAMP)
+        ON CONFLICT (user_id) 
+        DO UPDATE SET token = $2, expires_at = $3, is_used = false, created_at = CURRENT_TIMESTAMP`
+
+	_, err := r.db.Exec(query, userID, token, expiresAt)
+	return err
+}
+
+func (r *UserRepository) ValidatePasswordResetToken(token string) (int, error) {
+	var userID int
+	query := `
+        SELECT user_id FROM password_reset_tokens 
+        WHERE token = $1 AND expires_at > CURRENT_TIMESTAMP AND is_used = false`
+
+	err := r.db.QueryRow(query, token).Scan(&userID)
+	if err != nil {
+		return 0, err
+	}
+
+	// Mark token as used
+	_, err = r.db.Exec("UPDATE password_reset_tokens SET is_used = true WHERE token = $1", token)
+	return userID, err
+}
+
+// Add these methods to your user_repository.go
+
+func (r *UserRepository) GetAll(pagination *models.PaginationRequest, filters *models.UserFilters) ([]models.User, int, error) {
+	var users []models.User
+	var totalRows int
+
+	// Build WHERE clause for search
+	whereClause := "WHERE u.is_active = true"
+	args := []interface{}{}
+	argIndex := 1
+
+	// Add filters
+	if filters.Search != "" {
+		whereClause += fmt.Sprintf(" AND (u.username ILIKE $%d OR u.email ILIKE $%d OR u.full_name ILIKE $%d)",
+			argIndex, argIndex+1, argIndex+2)
+		searchPattern := "%" + filters.Search + "%"
+		args = append(args, searchPattern, searchPattern, searchPattern)
+		argIndex += 3
+	}
+
+	if filters.Status != "" {
+		whereClause += fmt.Sprintf(" AND u.status = $%d", argIndex)
+		args = append(args, filters.Status)
+		argIndex++
+	}
+
+	// Count total rows
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(*) 
+		FROM users_application u 
+		%s`, whereClause)
+
+	if err := r.db.Get(&totalRows, countQuery, args...); err != nil {
+		return nil, 0, err
+	}
+
+	// Build ORDER BY clause
+	orderBy := "ORDER BY u.created_at DESC"
+	if pagination.SortBy != "" {
+		validSortFields := map[string]string{
+			"username":   "u.username",
+			"email":      "u.email",
+			"full_name":  "u.full_name",
+			"created_at": "u.created_at",
+		}
+		if field, exists := validSortFields[pagination.SortBy]; exists {
+			orderBy = fmt.Sprintf("ORDER BY %s %s", field, strings.ToUpper(pagination.SortDir))
+		}
+	}
+
+	// Main query with pagination
+	query := fmt.Sprintf(`
+		SELECT 
+			u.user_apps_id, u.username, u.email, u.full_name, u.status,
+			u.last_login_at, u.created_at, u.updated_at, u.created_by, u.updated_by
+		FROM users_application u
+		%s %s
+		LIMIT $%d OFFSET $%d`, whereClause, orderBy, argIndex, argIndex+1)
+
+	args = append(args, pagination.GetLimit(), pagination.GetOffset())
+
+	if err := r.db.Select(&users, query, args...); err != nil {
+		return nil, 0, err
+	}
+
+	return users, totalRows, nil
+}
+
+func (r *UserRepository) Create(user *models.UserCreateRequest, hashedPassword string, createdBy int) (*models.User, error) {
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var userID int
+	query := `
+		INSERT INTO users_application (
+			username, email, password_hash, full_name, status, created_by
+		) VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING user_apps_id`
+
+	status := user.Status
+	if status == "" {
+		status = "active"
+	}
+
+	if err := tx.Get(&userID, query,
+		user.Username, user.Email, hashedPassword, user.FullName, status, createdBy); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return r.GetByID(userID)
+}
+
+func (r *UserRepository) Update(id int, user *models.UserUpdateRequest, updatedBy int) (*models.User, error) {
+	query := `
+		UPDATE users_application SET
+			username = $1, email = $2, full_name = $3, status = $4,
+			updated_by = $5, updated_at = CURRENT_TIMESTAMP
+		WHERE user_apps_id = $6 AND is_active = true`
+
+	result, err := r.db.Exec(query,
+		user.Username, user.Email, user.FullName, user.Status,
+		updatedBy, id)
+	if err != nil {
+		return nil, err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return nil, sql.ErrNoRows
+	}
+
+	return r.GetByID(id)
+}
+
+func (r *UserRepository) UpdateStatus(id int, status string, updatedBy int) error {
+	query := `
+		UPDATE users_application SET 
+			status = $1, updated_by = $2, updated_at = CURRENT_TIMESTAMP
+		WHERE user_apps_id = $3 AND is_active = true`
+
+	result, err := r.db.Exec(query, status, updatedBy, id)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
+}
+
+func (r *UserRepository) AssignRoles(userID int, roleIDs []int, assignedBy int) error {
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// First, deactivate existing roles
+	_, err = tx.Exec(`UPDATE user_roles SET is_active = false WHERE user_id = $1`, userID)
+	if err != nil {
+		return err
+	}
+
+	// Then assign new roles
+	for _, roleID := range roleIDs {
+		_, err := tx.Exec(`
+			INSERT INTO user_roles (user_id, role_id, assigned_by, assigned_at, is_active)
+			VALUES ($1, $2, $3, CURRENT_TIMESTAMP, true)
+			ON CONFLICT (user_id, role_id)
+			DO UPDATE SET is_active = true, assigned_by = $3, assigned_at = CURRENT_TIMESTAMP`,
+			userID, roleID, assignedBy)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *UserRepository) RemoveRoles(userID int, roleIDs []int, removedBy int) error {
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, roleID := range roleIDs {
+		_, err := tx.Exec(`
+			UPDATE user_roles SET is_active = false 
+			WHERE user_id = $1 AND role_id = $2`, userID, roleID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *UserRepository) GetUserPermissions(userID int) ([]models.Permission, error) {
+	var permissions []models.Permission
+	query := `
+		SELECT DISTINCT p.permission_id, p.permission_name, p.permission_code, p.description
+		FROM permissions p
+		INNER JOIN role_permissions rp ON p.permission_id = rp.permission_id
+		INNER JOIN user_roles ur ON rp.role_id = ur.role_id
+		WHERE ur.user_id = $1 AND ur.is_active = true AND rp.is_active = true AND p.is_active = true`
+
+	if err := r.db.Select(&permissions, query, userID); err != nil {
+		return nil, err
+	}
+
+	return permissions, nil
 }

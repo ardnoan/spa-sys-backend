@@ -33,11 +33,6 @@ func SetupRoutes(e *echo.Echo, cfg *config.Config) {
 	e.Use(middleware.CORS())
 	e.Use(middleware.RequestLogger())
 
-	// Health check
-	e.GET("/health", func(c echo.Context) error {
-		return c.JSON(200, map[string]string{"status": "OK", "service": "auth"})
-	})
-
 	// API version 1
 	v1 := e.Group("/api/v1")
 
