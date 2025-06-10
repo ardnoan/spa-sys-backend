@@ -4,24 +4,33 @@ import (
 	"database/sql"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type User struct {
-	ID           int     `json:"id"`
-	Username     string  `json:"username"`
-	Email        string  `json:"email"`
-	FirstName    string  `json:"first_name"`
-	LastName     string  `json:"last_name"`
-	StatusID     int     `json:"status_id"`
-	DepartmentID *int    `json:"department_id"`
-	EmployeeID   *string `json:"employee_id"`
-	Phone        *string `json:"phone"`
-	IsActive     bool    `json:"is_active"`
-	CreatedAt    string  `json:"created_at"`
-	UpdatedAt    string  `json:"updated_at"`
+	ID                  int
+	Username            string
+	Email               string
+	PasswordHash        string
+	FirstName           string
+	LastName            string
+	StatusID            int
+	DepartmentID        *int    // Nullable integer
+	EmployeeID          *string // Nullable string
+	Phone               *string
+	AvatarURL           *string
+	LastLoginAt         *time.Time
+	PasswordChangedAt   time.Time
+	FailedLoginAttempts int
+	LockedUntil         *time.Time
+	IsActive            bool
+	CreatedAt           time.Time
+	CreatedBy           *string
+	UpdatedAt           time.Time
+	UpdatedBy           *string
 }
 
 type CreateUserRequest struct {
@@ -169,13 +178,10 @@ func (uc *UserController) GetAllUsers(c echo.Context) error {
 		return uc.errorResponse(c, http.StatusInternalServerError, "Failed to count users")
 	}
 
-	// Get users with pagination
-	query := `SELECT user_apps_id, username, email, first_name, last_name, status_id, 
-              department_id, employee_id, phone, is_active, created_at, updated_at
-              FROM users_application 
-              WHERE is_active = true 
-              ORDER BY created_at DESC 
-              LIMIT $1 OFFSET $2`
+	query := `SELECT * FROM users_application 
+          WHERE is_active = true 
+          ORDER BY created_at DESC 
+          LIMIT $1 OFFSET $2`
 
 	rows, err := uc.DB.Query(query, limitInt, offset)
 	if err != nil {
@@ -186,11 +192,13 @@ func (uc *UserController) GetAllUsers(c echo.Context) error {
 	var users []User
 	for rows.Next() {
 		var user User
-		err := rows.Scan(&user.ID, &user.Username, &user.Email, &user.FirstName,
-			&user.LastName, &user.StatusID, &user.DepartmentID, &user.EmployeeID,
-			&user.Phone, &user.IsActive, &user.CreatedAt, &user.UpdatedAt)
+		err := rows.Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash,
+			&user.FirstName, &user.LastName, &user.StatusID, &user.DepartmentID,
+			&user.EmployeeID, &user.Phone, &user.AvatarURL, &user.LastLoginAt,
+			&user.PasswordChangedAt, &user.FailedLoginAttempts, &user.LockedUntil,
+			&user.IsActive, &user.CreatedAt, &user.CreatedBy, &user.UpdatedAt, &user.UpdatedBy)
 		if err != nil {
-			continue
+			continue // skip row kalau error scan
 		}
 		users = append(users, user)
 	}
