@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"v01_system_backend/config"
 	"v01_system_backend/routes"
 
 	"github.com/labstack/echo/v4"
@@ -10,11 +11,11 @@ import (
 
 func main() {
 	// Initialize config
-	InitConfig()
+	config.InitConfig()
 
 	// Initialize database
-	InitDatabase()
-	defer DB.Close()
+	config.InitDatabase()
+	defer config.DB.Close()
 
 	// Create Echo instance
 	e := echo.New()
@@ -25,9 +26,16 @@ func main() {
 	e.Use(middleware.CORS())
 
 	// Setup routes with DB
-	routes.SetupRoutes(e, DB)
+	routes.SetupRoutes(e, config.DB)
+
+	// Optionally: basic ping test
+	e.GET("/ping", func(c echo.Context) error {
+		return c.JSON(200, map[string]string{
+			"message": "pong",
+		})
+	})
 
 	// Start server
-	log.Printf("Server starting on port %s", AppConfig.ServerPort)
-	e.Logger.Fatal(e.Start(":" + AppConfig.ServerPort))
+	log.Printf("Server starting on port %s", config.AppConfig.ServerPort)
+	e.Logger.Fatal(e.Start(":" + config.AppConfig.ServerPort))
 }

@@ -10,13 +10,17 @@ import (
 func SetupUserRoutes(api *echo.Group, db *sql.DB) {
 	userController := controller.NewUserController(db)
 
-	// User routes
+	// User CRUD routes
 	users := api.Group("/users")
-	users.POST("", userController.CreateUser)
-	users.GET("", userController.GetAllUsers)
-	users.GET("/:id", userController.GetUser)
-	users.PUT("/:id", userController.UpdateUser)
-	users.DELETE("/:id", userController.DeleteUser)
+	users.POST("", userController.CreateUser)       // Create user
+	users.GET("", userController.GetAllUsers)       // Get all users with pagination
+	users.GET("/:id", userController.GetUser)       // Get user by ID
+	users.PUT("/:id", userController.UpdateUser)    // Update user
+	users.DELETE("/:id", userController.DeleteUser) // Delete user (soft delete)
+
+	// Additional user routes
+	users.GET("/status/:status_id", userController.GetUsersByStatus) // Get users by status
+	users.GET("/search", userController.SearchUsers)                 // Search users
 
 	// Auth routes
 	auth := api.Group("/auth")
