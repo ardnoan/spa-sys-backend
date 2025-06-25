@@ -104,9 +104,27 @@ func (uc *UserController) CreateUser(c echo.Context) error {
 		return uc.errorResponse(c, http.StatusBadRequest, "Invalid request format")
 	}
 
-	// Validate request
-	if err := c.Validate(&req); err != nil {
-		return uc.errorResponse(c, http.StatusBadRequest, err.Error())
+	// Validate request menggunakan validator langsung
+	if err := validate.Struct(&req); err != nil {
+		// Format validation errors
+		validationErrors := make([]string, 0)
+		if validatorErr, ok := err.(validator.ValidationErrors); ok {
+			for _, fieldError := range validatorErr {
+				switch fieldError.Tag() {
+				case "required":
+					validationErrors = append(validationErrors, fieldError.Field()+" is required")
+				case "email":
+					validationErrors = append(validationErrors, "Invalid email format")
+				case "min":
+					validationErrors = append(validationErrors, fieldError.Field()+" must be at least "+fieldError.Param()+" characters")
+				case "max":
+					validationErrors = append(validationErrors, fieldError.Field()+" must be at most "+fieldError.Param()+" characters")
+				default:
+					validationErrors = append(validationErrors, fieldError.Field()+" is invalid")
+				}
+			}
+		}
+		return uc.errorResponse(c, http.StatusBadRequest, strings.Join(validationErrors, ", "))
 	}
 
 	// Check if username or email already exists
