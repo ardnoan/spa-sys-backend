@@ -14,6 +14,7 @@ func SetupRoutes(e *echo.Echo, db *sql.DB) {
 	SetupUserRoutes(api, db)
 	SetupDepartmentRoutes(api, db)
 	SetupStatusRoutes(api, db)
+	SetupRoleRoutes(api, db)
 
 	// Health check
 	api.GET("/health", func(c echo.Context) error {
