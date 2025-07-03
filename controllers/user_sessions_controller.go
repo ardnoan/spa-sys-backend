@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
+	"github.com/labstack/echo/v4"
 	_ "github.com/lib/pq"
 )
 
@@ -31,10 +31,10 @@ func NewUserSessionsController(db *sql.DB) *UserSessionsController {
 	return &UserSessionsController{DB: db}
 }
 
-func (c *UserSessionsController) GetAllUserSessions(ctx *gin.Context) {
-	page, _ := strconv.Atoi(ctx.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(ctx.DefaultQuery("limit", "10"))
-	search := ctx.Query("search")
+func (c *UserSessionsController) GetAllUserSessions(ctx echo.Context) error {
+	page, _ := strconv.Atoi(ctx.QueryParam("page"))
+	limit, _ := strconv.Atoi(ctx.QueryParam("limit"))
+	search := ctx.QueryParam("search")
 
 	if page < 1 {
 		page = 1
@@ -94,21 +94,18 @@ func (c *UserSessionsController) GetAllUserSessions(ctx *gin.Context) {
 	if search != "" {
 		err := c.DB.QueryRow(countQuery, "%"+search+"%").Scan(&totalRecords)
 		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count records"})
-			return
+			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to count records"})
 		}
 	} else {
 		err := c.DB.QueryRow(countQuery).Scan(&totalRecords)
 		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count records"})
-			return
+			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to count records"})
 		}
 	}
 
 	rows, err := c.DB.Query(query, args...)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user sessions"})
-		return
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch user sessions"})
 	}
 	defer rows.Close()
 
@@ -129,17 +126,16 @@ func (c *UserSessionsController) GetAllUserSessions(ctx *gin.Context) {
 			&session.CreatedAt,
 		)
 		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan user session"})
-			return
+			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to scan user session"})
 		}
 		sessions = append(sessions, session)
 	}
 
 	totalPages := (totalRecords + limit - 1) / limit
 
-	response := gin.H{
+	response := map[string]interface{}{
 		"data": sessions,
-		"pagination": gin.H{
+		"pagination": map[string]interface{}{
 			"current_page":     page,
 			"total_pages":      totalPages,
 			"total_records":    totalRecords,
@@ -147,5 +143,5 @@ func (c *UserSessionsController) GetAllUserSessions(ctx *gin.Context) {
 		},
 	}
 
-	ctx.JSON(http.StatusOK, response)
+	return ctx.JSON(http.StatusOK, response)
 }

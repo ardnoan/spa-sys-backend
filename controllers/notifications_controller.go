@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
+	"github.com/labstack/echo/v4"
 	_ "github.com/lib/pq"
 )
 
@@ -32,10 +32,10 @@ func NewNotificationsController(db *sql.DB) *NotificationsController {
 	return &NotificationsController{DB: db}
 }
 
-func (c *NotificationsController) GetAllNotifications(ctx *gin.Context) {
-	page, _ := strconv.Atoi(ctx.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(ctx.DefaultQuery("limit", "10"))
-	search := ctx.Query("search")
+func (c *NotificationsController) GetAllNotifications(ctx echo.Context) error {
+	page, _ := strconv.Atoi(ctx.QueryParam("page"))
+	limit, _ := strconv.Atoi(ctx.QueryParam("limit"))
+	search := ctx.QueryParam("search")
 
 	if page < 1 {
 		page = 1
@@ -91,21 +91,18 @@ func (c *NotificationsController) GetAllNotifications(ctx *gin.Context) {
 	if search != "" {
 		err := c.DB.QueryRow(countQuery, "%"+search+"%").Scan(&totalRecords)
 		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count records"})
-			return
+			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to count records"})
 		}
 	} else {
 		err := c.DB.QueryRow(countQuery).Scan(&totalRecords)
 		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count records"})
-			return
+			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to count records"})
 		}
 	}
 
 	rows, err := c.DB.Query(query, args...)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch notifications"})
-		return
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch notifications"})
 	}
 	defer rows.Close()
 
@@ -126,17 +123,16 @@ func (c *NotificationsController) GetAllNotifications(ctx *gin.Context) {
 			&notification.CreatedAt,
 		)
 		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan notification"})
-			return
+			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to scan notification"})
 		}
 		notifications = append(notifications, notification)
 	}
 
 	totalPages := (totalRecords + limit - 1) / limit
 
-	response := gin.H{
+	response := map[string]interface{}{
 		"data": notifications,
-		"pagination": gin.H{
+		"pagination": map[string]interface{}{
 			"current_page":     page,
 			"total_pages":      totalPages,
 			"total_records":    totalRecords,
@@ -144,5 +140,5 @@ func (c *NotificationsController) GetAllNotifications(ctx *gin.Context) {
 		},
 	}
 
-	ctx.JSON(http.StatusOK, response)
+	return ctx.JSON(http.StatusOK, response)
 }

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
+	"github.com/labstack/echo/v4"
 	_ "github.com/lib/pq"
 )
 
@@ -33,10 +33,10 @@ func NewEmailTemplatesController(db *sql.DB) *EmailTemplatesController {
 	return &EmailTemplatesController{DB: db}
 }
 
-func (c *EmailTemplatesController) GetAllEmailTemplates(ctx *gin.Context) {
-	page, _ := strconv.Atoi(ctx.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(ctx.DefaultQuery("limit", "10"))
-	search := ctx.Query("search")
+func (c *EmailTemplatesController) GetAllEmailTemplates(ctx echo.Context) error {
+	page, _ := strconv.Atoi(ctx.QueryParam("page"))
+	limit, _ := strconv.Atoi(ctx.QueryParam("limit"))
+	search := ctx.QueryParam("search")
 
 	if page < 1 {
 		page = 1
@@ -85,21 +85,18 @@ func (c *EmailTemplatesController) GetAllEmailTemplates(ctx *gin.Context) {
 	if search != "" {
 		err := c.DB.QueryRow(countQuery, "%"+search+"%").Scan(&totalRecords)
 		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count records"})
-			return
+			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to count records"})
 		}
 	} else {
 		err := c.DB.QueryRow(countQuery).Scan(&totalRecords)
 		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count records"})
-			return
+			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to count records"})
 		}
 	}
 
 	rows, err := c.DB.Query(query, args...)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch email templates"})
-		return
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch email templates"})
 	}
 	defer rows.Close()
 
@@ -121,17 +118,16 @@ func (c *EmailTemplatesController) GetAllEmailTemplates(ctx *gin.Context) {
 			&template.UpdatedBy,
 		)
 		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan email template"})
-			return
+			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to scan email template"})
 		}
 		templates = append(templates, template)
 	}
 
 	totalPages := (totalRecords + limit - 1) / limit
 
-	response := gin.H{
+	response := map[string]interface{}{
 		"data": templates,
-		"pagination": gin.H{
+		"pagination": map[string]interface{}{
 			"current_page":     page,
 			"total_pages":      totalPages,
 			"total_records":    totalRecords,
@@ -139,5 +135,5 @@ func (c *EmailTemplatesController) GetAllEmailTemplates(ctx *gin.Context) {
 		},
 	}
 
-	ctx.JSON(http.StatusOK, response)
+	return ctx.JSON(http.StatusOK, response)
 }

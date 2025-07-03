@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
+	"github.com/labstack/echo/v4"
 	_ "github.com/lib/pq"
 )
 
@@ -27,10 +27,10 @@ func NewPasswordResetTokensController(db *sql.DB) *PasswordResetTokensController
 	return &PasswordResetTokensController{DB: db}
 }
 
-func (c *PasswordResetTokensController) GetAllPasswordResetTokens(ctx *gin.Context) {
-	page, _ := strconv.Atoi(ctx.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(ctx.DefaultQuery("limit", "10"))
-	search := ctx.Query("search")
+func (c *PasswordResetTokensController) GetAllPasswordResetTokens(ctx echo.Context) error {
+	page, _ := strconv.Atoi(ctx.QueryParam("page"))
+	limit, _ := strconv.Atoi(ctx.QueryParam("limit"))
+	search := ctx.QueryParam("search")
 
 	if page < 1 {
 		page = 1
@@ -84,21 +84,18 @@ func (c *PasswordResetTokensController) GetAllPasswordResetTokens(ctx *gin.Conte
 	if search != "" {
 		err := c.DB.QueryRow(countQuery, "%"+search+"%").Scan(&totalRecords)
 		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count records"})
-			return
+			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to count records"})
 		}
 	} else {
 		err := c.DB.QueryRow(countQuery).Scan(&totalRecords)
 		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count records"})
-			return
+			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to count records"})
 		}
 	}
 
 	rows, err := c.DB.Query(query, args...)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch password reset tokens"})
-		return
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch password reset tokens"})
 	}
 	defer rows.Close()
 
@@ -115,17 +112,16 @@ func (c *PasswordResetTokensController) GetAllPasswordResetTokens(ctx *gin.Conte
 			&token.CreatedAt,
 		)
 		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan password reset token"})
-			return
+			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to scan password reset token"})
 		}
 		tokens = append(tokens, token)
 	}
 
 	totalPages := (totalRecords + limit - 1) / limit
 
-	response := gin.H{
+	response := map[string]interface{}{
 		"data": tokens,
-		"pagination": gin.H{
+		"pagination": map[string]interface{}{
 			"current_page":     page,
 			"total_pages":      totalPages,
 			"total_records":    totalRecords,
@@ -133,5 +129,5 @@ func (c *PasswordResetTokensController) GetAllPasswordResetTokens(ctx *gin.Conte
 		},
 	}
 
-	ctx.JSON(http.StatusOK, response)
+	return ctx.JSON(http.StatusOK, response)
 }
