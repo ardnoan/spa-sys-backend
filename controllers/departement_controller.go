@@ -359,6 +359,21 @@ func (dc *DepartmentController) GetDepartmentHierarchy(c echo.Context) error {
 	defer rows.Close()
 
 	var hierarchy []map[string]interface{}
+
+	// Add hardcoded root node
+	rootNode := map[string]interface{}{
+		"department_id":   0,
+		"department_name": "Department Hierarchy",
+		"department_code": "ROOT",
+		"parent_id":       nil,
+		"manager_id":      nil,
+		"description":     "Root department hierarchy",
+		"is_active":       true,
+		"level":           -1,
+		"is_root":         true,
+	}
+	hierarchy = append(hierarchy, rootNode)
+
 	for rows.Next() {
 		var dept map[string]interface{}
 		var departmentID int
@@ -384,6 +399,7 @@ func (dc *DepartmentController) GetDepartmentHierarchy(c echo.Context) error {
 			"description":     description,
 			"is_active":       isActive,
 			"level":           level,
+			"is_root":         false,
 		}
 		hierarchy = append(hierarchy, dept)
 	}
