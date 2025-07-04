@@ -9,6 +9,6 @@ import (
 
 func SetupUsersPasswordHistoryRoutes(api *echo.Group, db *sql.DB) {
 	Controllers := controller.NewUserPasswordHistoryController(db)
-	Routes := api.Group("/email-templates")
+	Routes := api.Group("/users-password-history")
 	Routes.GET("", Controllers.GetAllUserPasswordHistory)
 }

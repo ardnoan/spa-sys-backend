@@ -9,6 +9,6 @@ import (
 
 func SetupPasswordResetTokensRoutes(api *echo.Group, db *sql.DB) {
 	Controllers := controller.NewPasswordResetTokensController(db)
-	Routes := api.Group("/email-templates")
+	Routes := api.Group("/password-reset-tokens")
 	Routes.GET("", Controllers.GetAllPasswordResetTokens)
 }

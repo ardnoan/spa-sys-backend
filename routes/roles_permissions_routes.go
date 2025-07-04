@@ -9,6 +9,6 @@ import (
 
 func SetupRolesPermissionsRoutes(api *echo.Group, db *sql.DB) {
 	Controllers := controller.NewRolePermissionsController(db)
-	Routes := api.Group("/email-templates")
+	Routes := api.Group("/roles-permissions")
 	Routes.GET("", Controllers.GetAllRolePermissions)
 }

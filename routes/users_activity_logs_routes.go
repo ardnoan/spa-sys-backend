@@ -9,6 +9,6 @@ import (
 
 func SetupUsersActivityLogsRoutes(api *echo.Group, db *sql.DB) {
 	Controllers := controller.NewUsersActivityLogsController(db)
-	Routes := api.Group("/email-templates")
+	Routes := api.Group("/users-activity-logs")
 	Routes.GET("", Controllers.GetAllUsersActivityLogs)
 }

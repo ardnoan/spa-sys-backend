@@ -9,6 +9,6 @@ import (
 
 func SetupNotficationRoutes(api *echo.Group, db *sql.DB) {
 	Controllers := controller.NewNotificationsController(db)
-	Routes := api.Group("/email-templates")
+	Routes := api.Group("/notifications")
 	Routes.GET("", Controllers.GetAllNotifications)
 }

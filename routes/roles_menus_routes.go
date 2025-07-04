@@ -9,6 +9,6 @@ import (
 
 func SetupRolesMenusRoutes(api *echo.Group, db *sql.DB) {
 	Controllers := controller.NewRoleMenusController(db)
-	Routes := api.Group("/email-templates")
+	Routes := api.Group("/roles-menus")
 	Routes.GET("", Controllers.GetAllRoleMenus)
 }

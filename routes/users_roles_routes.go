@@ -9,6 +9,6 @@ import (
 
 func SetupUsersRolesRoutes(api *echo.Group, db *sql.DB) {
 	Controllers := controller.NewUserRoleController(db)
-	Routes := api.Group("/email-templates")
+	Routes := api.Group("/users-roles")
 	Routes.GET("", Controllers.GetAllUserRoles)
 }

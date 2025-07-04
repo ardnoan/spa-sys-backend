@@ -9,6 +9,6 @@ import (
 
 func SetupSystemsSettingsRoutes(api *echo.Group, db *sql.DB) {
 	Controllers := controller.NewSystemSettingsController(db)
-	Routes := api.Group("/email-templates")
+	Routes := api.Group("/systems-settings")
 	Routes.GET("", Controllers.GetAllSystemSettings)
 }

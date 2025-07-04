@@ -9,6 +9,6 @@ import (
 
 func SetupUsersSessionsRoutes(api *echo.Group, db *sql.DB) {
 	Controllers := controller.NewUserSessionsController(db)
-	Routes := api.Group("/email-templates")
+	Routes := api.Group("/users-sessions")
 	Routes.GET("", Controllers.GetAllUserSessions)
 }
