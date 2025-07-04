@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	_ "github.com/lib/pq"
@@ -15,20 +16,20 @@ type UsersActivityLogsController struct {
 }
 
 type UsersActivityLog struct {
-	LogsID         int             `json:"logs_id"`
-	UserID         *int            `json:"user_id"`
-	Username       *string         `json:"username"`
-	SessionID      *int            `json:"session_id"`
-	Action         string          `json:"action"`
-	TargetType     *string         `json:"target_type"`
-	TargetID       *int            `json:"target_id"`
-	MenuName       *string         `json:"menu_name"`
-	Description    *string         `json:"description"`
-	IPAddress      *string         `json:"ip_address"`
-	UserAgent      *string         `json:"user_agent"`
-	RequestData    json.RawMessage `json:"request_data"`
-	ResponseStatus *int            `json:"response_status"`
-	CreatedAt      string          `json:"created_at"`
+	LogsID         int              `json:"logs_id"`
+	UserID         *int             `json:"user_id"`
+	Username       *string          `json:"username"`
+	SessionID      *int             `json:"session_id"`
+	Action         string           `json:"action"`
+	TargetType     *string          `json:"target_type"`
+	TargetID       *int             `json:"target_id"`
+	MenuName       *string          `json:"menu_name"`
+	Description    *string          `json:"description"`
+	IPAddress      *string          `json:"ip_address"`
+	UserAgent      *string          `json:"user_agent"`
+	RequestData    *json.RawMessage `json:"request_data"` // tetap ini
+	ResponseStatus *int             `json:"response_status"`
+	CreatedAt      time.Time        `json:"created_at"`
 }
 
 func NewUsersActivityLogsController(db *sql.DB) *UsersActivityLogsController {
@@ -46,7 +47,6 @@ func (c *UsersActivityLogsController) GetAllUsersActivityLogs(ctx echo.Context) 
 	if limit < 1 {
 		limit = 10
 	}
-
 	offset := (page - 1) * limit
 
 	var countQuery string
@@ -54,6 +54,7 @@ func (c *UsersActivityLogsController) GetAllUsersActivityLogs(ctx echo.Context) 
 	var args []interface{}
 
 	if search != "" {
+		searchParam := "%" + search + "%"
 		countQuery = `
 			SELECT COUNT(*) 
 			FROM users_activity_logs ual
@@ -72,7 +73,6 @@ func (c *UsersActivityLogsController) GetAllUsersActivityLogs(ctx echo.Context) 
 			ORDER BY ual.created_at DESC
 			LIMIT $2 OFFSET $3
 		`
-		searchParam := "%" + search + "%"
 		args = []interface{}{searchParam, limit, offset}
 	} else {
 		countQuery = `
@@ -94,28 +94,34 @@ func (c *UsersActivityLogsController) GetAllUsersActivityLogs(ctx echo.Context) 
 		args = []interface{}{limit, offset}
 	}
 
+	// Count total records
 	var totalRecords int
-	if search != "" {
-		err := c.DB.QueryRow(countQuery, "%"+search+"%").Scan(&totalRecords)
-		if err != nil {
-			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to count records"})
-		}
-	} else {
-		err := c.DB.QueryRow(countQuery).Scan(&totalRecords)
-		if err != nil {
-			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to count records"})
-		}
+	countArgs := args
+	if search == "" {
+		countArgs = []interface{}{}
+	}
+	err := c.DB.QueryRow(countQuery, countArgs...).Scan(&totalRecords)
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, map[string]interface{}{
+			"error":  "Failed to count records",
+			"detail": err.Error(),
+		})
 	}
 
 	rows, err := c.DB.Query(query, args...)
 	if err != nil {
-		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch activity logs"})
+		return ctx.JSON(http.StatusInternalServerError, map[string]interface{}{
+			"error":  "Failed to fetch activity logs",
+			"detail": err.Error(),
+		})
 	}
 	defer rows.Close()
 
 	var logs []UsersActivityLog
 	for rows.Next() {
 		var log UsersActivityLog
+		var requestData sql.NullString
+
 		err := rows.Scan(
 			&log.LogsID,
 			&log.UserID,
@@ -128,19 +134,30 @@ func (c *UsersActivityLogsController) GetAllUsersActivityLogs(ctx echo.Context) 
 			&log.Description,
 			&log.IPAddress,
 			&log.UserAgent,
-			&log.RequestData,
+			&requestData, // sementara ke sql.NullString
 			&log.ResponseStatus,
 			&log.CreatedAt,
 		)
 		if err != nil {
-			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to scan activity log"})
+			return ctx.JSON(http.StatusInternalServerError, map[string]interface{}{
+				"error":  "Failed to scan activity log",
+				"detail": err.Error(),
+			})
 		}
+
+		if requestData.Valid {
+			raw := json.RawMessage(requestData.String)
+			log.RequestData = &raw
+		} else {
+			log.RequestData = nil
+		}
+
 		logs = append(logs, log)
 	}
 
 	totalPages := (totalRecords + limit - 1) / limit
 
-	response := map[string]interface{}{
+	return ctx.JSON(http.StatusOK, map[string]interface{}{
 		"data": logs,
 		"pagination": map[string]interface{}{
 			"current_page":     page,
@@ -148,7 +165,5 @@ func (c *UsersActivityLogsController) GetAllUsersActivityLogs(ctx echo.Context) 
 			"total_records":    totalRecords,
 			"records_per_page": limit,
 		},
-	}
-
-	return ctx.JSON(http.StatusOK, response)
+	})
 }
