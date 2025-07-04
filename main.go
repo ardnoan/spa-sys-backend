@@ -35,6 +35,9 @@ func main() {
 	// Create Echo instance
 	e := echo.New()
 
+	// Set custom validator
+	e.Validator = &CustomValidator{validator: validator.New()}
+
 	// Middleware
 	// e.Use(middleware.Logger())
 	e.Use(middleware.Recover())

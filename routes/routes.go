@@ -27,6 +27,7 @@ func SetupRoutes(e *echo.Echo, db *sql.DB) {
 	SetupUsersActivityLogsRoutes(api, db)
 	SetupUsersPasswordHistoryRoutes(api, db)
 	SetupUsersRolesRoutes(api, db)
+	SetupAuthRoutes(api, db)
 
 	// Health check
 	api.GET("/health", func(c echo.Context) error {
