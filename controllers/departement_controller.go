@@ -129,8 +129,6 @@ func (dc *DepartmentController) GetDepartment(c echo.Context) error {
 
 	return dc.successResponse(c, department)
 }
-
-// Get All Departments with pagination and filters
 func (dc *DepartmentController) GetAllDepartments(c echo.Context) error {
 	// Get query parameters
 	page := c.QueryParam("page")
@@ -162,6 +160,20 @@ func (dc *DepartmentController) GetAllDepartments(c echo.Context) error {
 	args := []interface{}{}
 	argIndex := 1
 
+	// Default: only show root departments (parent_id IS NULL)
+	// Unless specific parent_id is provided
+	if parentID == "" {
+		whereClause += " AND parent_id IS NULL"
+	} else if parentID == "null" {
+		whereClause += " AND parent_id IS NULL"
+	} else {
+		whereClause += " AND parent_id = $" + strconv.Itoa(argIndex)
+		if pid, err := strconv.Atoi(parentID); err == nil {
+			args = append(args, pid)
+			argIndex++
+		}
+	}
+
 	if search != "" {
 		whereClause += " AND (LOWER(department_name) LIKE LOWER($" + strconv.Itoa(argIndex) +
 			") OR LOWER(department_code) LIKE LOWER($" + strconv.Itoa(argIndex) +
@@ -179,18 +191,6 @@ func (dc *DepartmentController) GetAllDepartments(c echo.Context) error {
 			args = append(args, false)
 		}
 		argIndex++
-	}
-
-	if parentID != "" {
-		if parentID == "null" {
-			whereClause += " AND parent_id IS NULL"
-		} else {
-			whereClause += " AND parent_id = $" + strconv.Itoa(argIndex)
-			if pid, err := strconv.Atoi(parentID); err == nil {
-				args = append(args, pid)
-				argIndex++
-			}
-		}
 	}
 
 	// Get total count
