@@ -149,3 +149,91 @@ func (c *MenusController) GetAllMenus(ctx echo.Context) error {
 
 	return ctx.JSON(http.StatusOK, response)
 }
+
+func (c *MenusController) GetRootMenus(ctx echo.Context) error {
+	search := ctx.QueryParam("search")
+	onlyActive := ctx.QueryParam("only_active") == "true"
+	onlyVisible := ctx.QueryParam("only_visible") == "true"
+
+	var query string
+	var args []interface{}
+	argIndex := 0
+
+	baseQuery := `
+		SELECT m.menus_id, m.menu_code, m.menu_name, m.parent_id, 
+		       NULL as parent_name, m.icon_name, m.route, m.menu_order, 
+		       m.is_visible, m.is_active, m.created_at, m.created_by, 
+		       m.updated_at, m.updated_by
+		FROM menus m
+		WHERE m.parent_id IS NULL
+	`
+
+	conditions := []string{}
+
+	if search != "" {
+		argIndex++
+		conditions = append(conditions, "m.menu_code ILIKE $"+strconv.Itoa(argIndex)+" OR m.menu_name ILIKE $"+strconv.Itoa(argIndex))
+		args = append(args, "%"+search+"%")
+	}
+
+	if onlyActive {
+		argIndex++
+		conditions = append(conditions, "m.is_active = $"+strconv.Itoa(argIndex))
+		args = append(args, true)
+	}
+
+	if onlyVisible {
+		argIndex++
+		conditions = append(conditions, "m.is_visible = $"+strconv.Itoa(argIndex))
+		args = append(args, true)
+	}
+
+	if len(conditions) > 0 {
+		query = baseQuery + " AND " + conditions[0]
+		for i := 1; i < len(conditions); i++ {
+			query += " AND " + conditions[i]
+		}
+	} else {
+		query = baseQuery
+	}
+
+	query += " ORDER BY m.menu_order, m.menu_name"
+
+	rows, err := c.DB.Query(query, args...)
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch root menus"})
+	}
+	defer rows.Close()
+
+	var menus []Menu
+	for rows.Next() {
+		var menu Menu
+		err := rows.Scan(
+			&menu.MenusID,
+			&menu.MenuCode,
+			&menu.MenuName,
+			&menu.ParentID,
+			&menu.ParentName,
+			&menu.IconName,
+			&menu.Route,
+			&menu.MenuOrder,
+			&menu.IsVisible,
+			&menu.IsActive,
+			&menu.CreatedAt,
+			&menu.CreatedBy,
+			&menu.UpdatedAt,
+			&menu.UpdatedBy,
+		)
+		if err != nil {
+			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to scan root menu"})
+		}
+		menus = append(menus, menu)
+	}
+
+	response := map[string]interface{}{
+		"data":          menus,
+		"total_records": len(menus),
+	}
+
+	return ctx.JSON(http.StatusOK, response)
+}
