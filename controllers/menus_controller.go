@@ -2,9 +2,11 @@ package controller
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	_ "github.com/lib/pq"
@@ -43,7 +45,6 @@ func NewMenusController(db *sql.DB) *MenusController {
 	return &MenusController{DB: db}
 }
 
-// GetAllMenus - Enhanced with additional filtering options
 func (c *MenusController) GetAllMenus(ctx echo.Context) error {
 	page, _ := strconv.Atoi(ctx.QueryParam("page"))
 	limit, _ := strconv.Atoi(ctx.QueryParam("limit"))
@@ -58,107 +59,98 @@ func (c *MenusController) GetAllMenus(ctx echo.Context) error {
 	if limit < 1 {
 		limit = 10
 	}
-
 	offset := (page - 1) * limit
 
-	var countQuery string
-	var query string
-	var args []interface{}
-	argIndex := 0
-
-	baseCountQuery := `
+	// Base queries
+	countQuery := `
 		SELECT COUNT(*) 
 		FROM menus m
 		LEFT JOIN menus p ON m.parent_id = p.menus_id
-		WHERE 1=1
-	`
-
-	baseQuery := `
+		WHERE 1=1`
+	dataQuery := `
 		SELECT m.menus_id, m.menu_code, m.menu_name, m.parent_id, p.menu_name as parent_name,
-			   m.icon_name, m.route, m.menu_order, m.is_visible, m.is_active,
-			   m.created_at, m.created_by, m.updated_at, m.updated_by
+		       m.icon_name, m.route, m.menu_order, m.is_visible, m.is_active,
+		       m.created_at, m.created_by, m.updated_at, m.updated_by
 		FROM menus m
 		LEFT JOIN menus p ON m.parent_id = p.menus_id
-		WHERE 1=1
-	`
+		WHERE 1=1`
 
-	conditions := []string{}
+	var conditions []string
+	var args []interface{}
+	argIndex := 1
 
-	// Add parent_id filter
+	// Filter: parent_id
 	if parentID != "" {
-		argIndex++
 		if parentID == "null" {
 			conditions = append(conditions, "m.parent_id IS NULL")
 		} else {
-			conditions = append(conditions, "m.parent_id = $"+strconv.Itoa(argIndex))
+			conditions = append(conditions, fmt.Sprintf("m.parent_id = $%d", argIndex))
 			args = append(args, parentID)
+			argIndex++
 		}
 	}
 
-	// Add search filter
+	// Filter: search
 	if search != "" {
-		argIndex++
-		conditions = append(conditions, "(m.menu_code ILIKE $"+strconv.Itoa(argIndex)+" OR m.menu_name ILIKE $"+strconv.Itoa(argIndex)+" OR p.menu_name ILIKE $"+strconv.Itoa(argIndex)+")")
+		cond := fmt.Sprintf(`(
+			m.menu_code ILIKE $%d OR 
+			m.menu_name ILIKE $%d OR 
+			p.menu_name ILIKE $%d
+		)`, argIndex, argIndex, argIndex)
+		conditions = append(conditions, cond)
 		args = append(args, "%"+search+"%")
+		argIndex++
 	}
 
-	// Add active filter
+	// Filter: is_active
 	if onlyActive {
-		argIndex++
-		conditions = append(conditions, "m.is_active = $"+strconv.Itoa(argIndex))
+		conditions = append(conditions, fmt.Sprintf("m.is_active = $%d", argIndex))
 		args = append(args, true)
+		argIndex++
 	}
 
-	// Add visible filter
+	// Filter: is_visible
 	if onlyVisible {
-		argIndex++
-		conditions = append(conditions, "m.is_visible = $"+strconv.Itoa(argIndex))
+		conditions = append(conditions, fmt.Sprintf("m.is_visible = $%d", argIndex))
 		args = append(args, true)
+		argIndex++
 	}
 
-	// Build final queries
+	// Combine conditions
+	conditionString := ""
 	if len(conditions) > 0 {
-		conditionString := " AND " + conditions[0]
-		for i := 1; i < len(conditions); i++ {
-			conditionString += " AND " + conditions[i]
-		}
-		countQuery = baseCountQuery + conditionString
-		query = baseQuery + conditionString
-	} else {
-		countQuery = baseCountQuery
-		query = baseQuery
+		conditionString = " AND " + strings.Join(conditions, " AND ")
 	}
 
-	query += " ORDER BY m.menu_order, m.menu_name"
+	// Final queries
+	finalCountQuery := countQuery + conditionString
+	finalDataQuery := dataQuery + conditionString + `
+		ORDER BY 
+			CASE WHEN m.parent_id IS NULL THEN 0 ELSE 1 END,
+			COALESCE(m.parent_id, 0),
+			m.menu_order,
+			m.menu_name
+		LIMIT $` + strconv.Itoa(argIndex) + ` OFFSET $` + strconv.Itoa(argIndex+1)
+	args = append(args, limit, offset)
 
-	// Add pagination
-	argIndex++
-	query += " LIMIT $" + strconv.Itoa(argIndex)
-	args = append(args, limit)
-
-	argIndex++
-	query += " OFFSET $" + strconv.Itoa(argIndex)
-	args = append(args, offset)
-
-	// Get total count
+	// Count total
 	var totalRecords int
-	countArgs := args[:len(args)-2] // Remove LIMIT and OFFSET from count query
-	err := c.DB.QueryRow(countQuery, countArgs...).Scan(&totalRecords)
-	if err != nil {
-		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to count records"})
+	if err := c.DB.QueryRow(finalCountQuery, args[:len(args)-2]...).Scan(&totalRecords); err != nil {
+		return ctx.JSON(http.StatusInternalServerError, echo.Map{"error": "Failed to count records"})
 	}
 
-	// Get menu data
-	rows, err := c.DB.Query(query, args...)
+	// Fetch data
+	rows, err := c.DB.Query(finalDataQuery, args...)
 	if err != nil {
-		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch menus"})
+		return ctx.JSON(http.StatusInternalServerError, echo.Map{"error": "Failed to fetch menus"})
 	}
 	defer rows.Close()
 
+	// Scan rows
 	var menus []Menu
 	for rows.Next() {
 		var menu Menu
-		err := rows.Scan(
+		if err := rows.Scan(
 			&menu.MenusID,
 			&menu.MenuCode,
 			&menu.MenuName,
@@ -173,26 +165,22 @@ func (c *MenusController) GetAllMenus(ctx echo.Context) error {
 			&menu.CreatedBy,
 			&menu.UpdatedAt,
 			&menu.UpdatedBy,
-		)
-		if err != nil {
-			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to scan menu"})
+		); err != nil {
+			return ctx.JSON(http.StatusInternalServerError, echo.Map{"error": "Failed to scan menu"})
 		}
 		menus = append(menus, menu)
 	}
 
-	totalPages := (totalRecords + limit - 1) / limit
-
-	response := map[string]interface{}{
+	// Response
+	return ctx.JSON(http.StatusOK, echo.Map{
 		"data": menus,
-		"pagination": map[string]interface{}{
+		"pagination": echo.Map{
 			"current_page":     page,
-			"total_pages":      totalPages,
+			"total_pages":      (totalRecords + limit - 1) / limit,
 			"total_records":    totalRecords,
 			"records_per_page": limit,
 		},
-	}
-
-	return ctx.JSON(http.StatusOK, response)
+	})
 }
 
 // GetRootMenus - Get all root menus (parent_id is NULL)
