@@ -813,3 +813,159 @@ func (c *MenusController) DeleteMenu(ctx echo.Context) error {
 		"message": "Menu deleted successfully",
 	})
 }
+
+// GetAllDescendants - Get all descendants of a parent menu (unlimited depth)
+func (c *MenusController) GetAllDescendants(ctx echo.Context) error {
+	parentID := ctx.Param("parent_id")
+	onlyActive := ctx.QueryParam("only_active") == "true"
+	onlyVisible := ctx.QueryParam("only_visible") == "true"
+
+	var query string
+	var args []interface{}
+	argIndex := 0
+
+	// Recursive CTE to get all descendants
+	query = `
+		WITH RECURSIVE menu_descendants AS (
+			-- Base case: direct children
+			SELECT 
+				m.menus_id,
+				m.menu_code,
+				m.menu_name,
+				m.parent_id,
+				m.icon_name,
+				m.route,
+				m.menu_order,
+				m.is_visible,
+				m.is_active,
+				m.created_at,
+				m.created_by,
+				m.updated_at,
+				m.updated_by,
+				0 as level,
+				CAST(m.menu_order AS text) as path
+			FROM menus m
+			WHERE m.parent_id = $1
+	`
+
+	argIndex++
+	args = append(args, parentID)
+
+	conditions := []string{}
+
+	if onlyActive {
+		argIndex++
+		conditions = append(conditions, "m.is_active = $"+strconv.Itoa(argIndex))
+		args = append(args, true)
+	}
+
+	if onlyVisible {
+		argIndex++
+		conditions = append(conditions, "m.is_visible = $"+strconv.Itoa(argIndex))
+		args = append(args, true)
+	}
+
+	// Add conditions to base case
+	if len(conditions) > 0 {
+		query += " AND " + strings.Join(conditions, " AND ")
+	}
+
+	// Recursive case: get descendants of descendants
+	query += `
+			UNION ALL
+			
+			-- Recursive case: children of children
+			SELECT 
+				m.menus_id,
+				m.menu_code,
+				m.menu_name,
+				m.parent_id,
+				m.icon_name,
+				m.route,
+				m.menu_order,
+				m.is_visible,
+				m.is_active,
+				m.created_at,
+				m.created_by,
+				m.updated_at,
+				m.updated_by,
+				md.level + 1 as level,
+				md.path || '.' || CAST(m.menu_order AS text) as path
+			FROM menus m
+			INNER JOIN menu_descendants md ON m.parent_id = md.menus_id
+	`
+
+	// Add filters for recursive part
+	recursiveConditions := []string{}
+	if onlyActive {
+		recursiveConditions = append(recursiveConditions, "m.is_active = true")
+	}
+	if onlyVisible {
+		recursiveConditions = append(recursiveConditions, "m.is_visible = true")
+	}
+
+	if len(recursiveConditions) > 0 {
+		query += " WHERE " + strings.Join(recursiveConditions, " AND ")
+	}
+
+	// Final selection and ordering
+	query += `
+		)
+		SELECT 
+			md.menus_id,
+			md.menu_code,
+			md.menu_name,
+			md.parent_id,
+			p.menu_name as parent_name,
+			md.icon_name,
+			md.route,
+			md.menu_order,
+			md.is_visible,
+			md.is_active,
+			md.created_at,
+			md.created_by,
+			md.updated_at,
+			md.updated_by
+		FROM menu_descendants md
+		LEFT JOIN menus p ON md.parent_id = p.menus_id
+		ORDER BY md.path
+	`
+
+	rows, err := c.DB.Query(query, args...)
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch descendants"})
+	}
+	defer rows.Close()
+
+	var menus []Menu
+	for rows.Next() {
+		var menu Menu
+		err := rows.Scan(
+			&menu.MenusID,
+			&menu.MenuCode,
+			&menu.MenuName,
+			&menu.ParentID,
+			&menu.ParentName,
+			&menu.IconName,
+			&menu.Route,
+			&menu.MenuOrder,
+			&menu.IsVisible,
+			&menu.IsActive,
+			&menu.CreatedAt,
+			&menu.CreatedBy,
+			&menu.UpdatedAt,
+			&menu.UpdatedBy,
+		)
+		if err != nil {
+			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to scan descendant menu"})
+		}
+		menus = append(menus, menu)
+	}
+
+	response := map[string]interface{}{
+		"data":          menus,
+		"total_records": len(menus),
+	}
+
+	return ctx.JSON(http.StatusOK, response)
+}

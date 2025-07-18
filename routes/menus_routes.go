@@ -24,4 +24,6 @@ func SetupMenusRoutes(api *echo.Group, db *sql.DB) {
 	routes.POST("", Controllers.CreateMenu)       // POST /api/menus
 	routes.PUT("/:id", Controllers.UpdateMenu)    // PUT /api/menus/1
 	routes.DELETE("/:id", Controllers.DeleteMenu) // DELETE /api/menus/1
+
+	routes.GET("/:parent_id/descendants", Controllers.GetAllDescendants)
 }
