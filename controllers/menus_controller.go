@@ -693,3 +693,123 @@ func (c *MenusController) GetMenuByRoute(ctx echo.Context) error {
 
 	return ctx.JSON(http.StatusOK, response)
 }
+
+// Add these methods to your MenusController struct
+
+// CreateMenu - Create new menu
+func (c *MenusController) CreateMenu(ctx echo.Context) error {
+	var menu Menu
+	if err := ctx.Bind(&menu); err != nil {
+		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	}
+
+	query := `
+		INSERT INTO menus (menu_code, menu_name, parent_id, icon_name, route, menu_order, is_visible, is_active, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING menus_id, created_at, updated_at
+	`
+
+	var menuID int
+	var createdAt, updatedAt string
+	err := c.DB.QueryRow(query,
+		menu.MenuCode,
+		menu.MenuName,
+		menu.ParentID,
+		menu.IconName,
+		menu.Route,
+		menu.MenuOrder,
+		menu.IsVisible,
+		menu.IsActive,
+		menu.CreatedBy,
+	).Scan(&menuID, &createdAt, &updatedAt)
+
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create menu"})
+	}
+
+	menu.MenusID = menuID
+	menu.CreatedAt = createdAt
+	menu.UpdatedAt = updatedAt
+
+	return ctx.JSON(http.StatusCreated, map[string]interface{}{
+		"data":    menu,
+		"message": "Menu created successfully",
+	})
+}
+
+// UpdateMenu - Update existing menu
+func (c *MenusController) UpdateMenu(ctx echo.Context) error {
+	id := ctx.Param("id")
+	var menu Menu
+	if err := ctx.Bind(&menu); err != nil {
+		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	}
+
+	query := `
+		UPDATE menus 
+		SET menu_code = $1, menu_name = $2, parent_id = $3, icon_name = $4, route = $5, 
+		    menu_order = $6, is_visible = $7, is_active = $8, updated_by = $9, updated_at = CURRENT_TIMESTAMP
+		WHERE menus_id = $10
+		RETURNING updated_at
+	`
+
+	var updatedAt string
+	err := c.DB.QueryRow(query,
+		menu.MenuCode,
+		menu.MenuName,
+		menu.ParentID,
+		menu.IconName,
+		menu.Route,
+		menu.MenuOrder,
+		menu.IsVisible,
+		menu.IsActive,
+		menu.UpdatedBy,
+		id,
+	).Scan(&updatedAt)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ctx.JSON(http.StatusNotFound, map[string]string{"error": "Menu not found"})
+		}
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to update menu"})
+	}
+
+	menu.UpdatedAt = updatedAt
+
+	return ctx.JSON(http.StatusOK, map[string]interface{}{
+		"data":    menu,
+		"message": "Menu updated successfully",
+	})
+}
+
+// DeleteMenu - Delete menu
+func (c *MenusController) DeleteMenu(ctx echo.Context) error {
+	id := ctx.Param("id")
+
+	// Check if menu has children
+	var childCount int
+	err := c.DB.QueryRow("SELECT COUNT(*) FROM menus WHERE parent_id = $1", id).Scan(&childCount)
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to check menu children"})
+	}
+
+	if childCount > 0 {
+		return ctx.JSON(http.StatusConflict, map[string]string{"error": "Cannot delete menu with child menus"})
+	}
+
+	query := `DELETE FROM menus WHERE menus_id = $1`
+	result, err := c.DB.Exec(query, id)
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to delete menu"})
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return ctx.JSON(http.StatusNotFound, map[string]string{"error": "Menu not found"})
+	}
+
+	return ctx.JSON(http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Menu deleted successfully",
+	})
+}
