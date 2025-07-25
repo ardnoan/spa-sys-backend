@@ -8,7 +8,16 @@ import (
 )
 
 func SetupSystemsSettingsRoutes(api *echo.Group, db *sql.DB) {
-	Controllers := controller.NewSystemSettingsController(db)
-	Routes := api.Group("/systems-settings")
-	Routes.GET("", Controllers.GetAllSystemSettings)
+	controller := controller.NewSystemSettingsController(db)
+	routes := api.Group("/systems-settings")
+
+	// CRUD Routes
+	routes.GET("", controller.GetAllSystemSettings)       // GET /api/systems-settings
+	routes.GET("/:id", controller.GetSystemSettingByID)   // GET /api/systems-settings/:id
+	routes.POST("", controller.CreateSystemSetting)       // POST /api/systems-settings
+	routes.PUT("/:id", controller.UpdateSystemSetting)    // PUT /api/systems-settings/:id
+	routes.DELETE("/:id", controller.DeleteSystemSetting) // DELETE /api/systems-settings/:id
+
+	// Public settings route (for frontend consumption)
+	routes.GET("/public", controller.GetPublicSettings) // GET /api/systems-settings/public
 }
