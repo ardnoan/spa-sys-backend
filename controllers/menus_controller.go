@@ -2,11 +2,8 @@ package controller
 
 import (
 	"database/sql"
-	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
-	"strings"
 
 	"github.com/labstack/echo/v4"
 	_ "github.com/lib/pq"
@@ -27,10 +24,13 @@ type Menu struct {
 	MenuOrder  int     `json:"menu_order"`
 	IsVisible  bool    `json:"is_visible"`
 	IsActive   bool    `json:"is_active"`
-	CreatedAt  string  `json:"created_at"`
-	CreatedBy  *string `json:"created_by"`
-	UpdatedAt  string  `json:"updated_at"`
-	UpdatedBy  *string `json:"updated_by"`
+	// Permissions
+	CanView     bool `json:"can_view"`
+	CanCreate   bool `json:"can_create"`
+	CanModify   bool `json:"can_modify"`
+	CanDelete   bool `json:"can_delete"`
+	CanUpload   bool `json:"can_upload"`
+	CanDownload bool `json:"can_download"`
 }
 
 type BreadcrumbItem struct {
@@ -45,195 +45,67 @@ func NewMenusController(db *sql.DB) *MenusController {
 	return &MenusController{DB: db}
 }
 
-func (c *MenusController) GetAllMenus(ctx echo.Context) error {
-	page, _ := strconv.Atoi(ctx.QueryParam("page"))
-	limit, _ := strconv.Atoi(ctx.QueryParam("limit"))
-	search := ctx.QueryParam("search")
-	parentID := ctx.QueryParam("parent_id")
-	onlyActive := ctx.QueryParam("only_active") == "true"
-	onlyVisible := ctx.QueryParam("only_visible") == "true"
-
-	if page < 1 {
-		page = 1
-	}
-	if limit < 1 {
-		limit = 10
-	}
-	offset := (page - 1) * limit
-
-	// Base queries
-	countQuery := `
-		SELECT COUNT(*) 
-		FROM menus m
-		LEFT JOIN menus p ON m.parent_id = p.menus_id
-		WHERE 1=1`
-	dataQuery := `
-		SELECT m.menus_id, m.menu_code, m.menu_name, m.parent_id, p.menu_name as parent_name,
-		       m.icon_name, m.route, m.menu_order, m.is_visible, m.is_active,
-		       m.created_at, m.created_by, m.updated_at, m.updated_by
-		FROM menus m
-		LEFT JOIN menus p ON m.parent_id = p.menus_id
-		WHERE 1=1`
-
-	var conditions []string
-	var args []interface{}
-	argIndex := 1
-
-	// Filter: parent_id
-	if parentID != "" {
-		if parentID == "null" {
-			conditions = append(conditions, "m.parent_id IS NULL")
-		} else {
-			conditions = append(conditions, fmt.Sprintf("m.parent_id = $%d", argIndex))
-			args = append(args, parentID)
-			argIndex++
-		}
+// GetUserMenus - Get all menus for a specific user using procedure
+func (c *MenusController) GetUserMenus(ctx echo.Context) error {
+	userID := ctx.QueryParam("user_id")
+	if userID == "" {
+		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "user_id is required"})
 	}
 
-	// Filter: search
-	if search != "" {
-		cond := fmt.Sprintf(`(
-			m.menu_code ILIKE $%d OR 
-			m.menu_name ILIKE $%d OR 
-			p.menu_name ILIKE $%d
-		)`, argIndex, argIndex, argIndex)
-		conditions = append(conditions, cond)
-		args = append(args, "%"+search+"%")
-		argIndex++
-	}
+	// Call the stored procedure
+	query := `SELECT * FROM security.get_user_menus($1)`
 
-	// Filter: is_active
-	if onlyActive {
-		conditions = append(conditions, fmt.Sprintf("m.is_active = $%d", argIndex))
-		args = append(args, true)
-		argIndex++
-	}
-
-	// Filter: is_visible
-	if onlyVisible {
-		conditions = append(conditions, fmt.Sprintf("m.is_visible = $%d", argIndex))
-		args = append(args, true)
-		argIndex++
-	}
-
-	// Combine conditions
-	conditionString := ""
-	if len(conditions) > 0 {
-		conditionString = " AND " + strings.Join(conditions, " AND ")
-	}
-
-	// Final queries
-	finalCountQuery := countQuery + conditionString
-	finalDataQuery := dataQuery + conditionString + `
-		ORDER BY 
-			CASE WHEN m.parent_id IS NULL THEN 0 ELSE 1 END,
-			COALESCE(m.parent_id, 0),
-			m.menu_order,
-			m.menu_name
-		LIMIT $` + strconv.Itoa(argIndex) + ` OFFSET $` + strconv.Itoa(argIndex+1)
-	args = append(args, limit, offset)
-
-	// Count total
-	var totalRecords int
-	if err := c.DB.QueryRow(finalCountQuery, args[:len(args)-2]...).Scan(&totalRecords); err != nil {
-		return ctx.JSON(http.StatusInternalServerError, echo.Map{"error": "Failed to count records"})
-	}
-
-	// Fetch data
-	rows, err := c.DB.Query(finalDataQuery, args...)
+	rows, err := c.DB.Query(query, userID)
 	if err != nil {
-		return ctx.JSON(http.StatusInternalServerError, echo.Map{"error": "Failed to fetch menus"})
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch user menus"})
 	}
 	defer rows.Close()
 
-	// Scan rows
 	var menus []Menu
 	for rows.Next() {
 		var menu Menu
-		if err := rows.Scan(
+		err := rows.Scan(
 			&menu.MenusID,
 			&menu.MenuCode,
 			&menu.MenuName,
 			&menu.ParentID,
-			&menu.ParentName,
 			&menu.IconName,
 			&menu.Route,
 			&menu.MenuOrder,
-			&menu.IsVisible,
-			&menu.IsActive,
-			&menu.CreatedAt,
-			&menu.CreatedBy,
-			&menu.UpdatedAt,
-			&menu.UpdatedBy,
-		); err != nil {
-			return ctx.JSON(http.StatusInternalServerError, echo.Map{"error": "Failed to scan menu"})
+			&menu.CanView,
+			&menu.CanCreate,
+			&menu.CanModify,
+			&menu.CanDelete,
+			&menu.CanUpload,
+			&menu.CanDownload,
+		)
+		if err != nil {
+			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to scan user menu"})
 		}
 		menus = append(menus, menu)
 	}
 
-	// Response
-	return ctx.JSON(http.StatusOK, echo.Map{
-		"data": menus,
-		"pagination": echo.Map{
-			"current_page":     page,
-			"total_pages":      (totalRecords + limit - 1) / limit,
-			"total_records":    totalRecords,
-			"records_per_page": limit,
-		},
-	})
+	response := map[string]interface{}{
+		"data":          menus,
+		"total_records": len(menus),
+	}
+
+	return ctx.JSON(http.StatusOK, response)
 }
 
-// GetRootMenus - Get all root menus (parent_id is NULL)
-func (c *MenusController) GetRootMenus(ctx echo.Context) error {
-	search := ctx.QueryParam("search")
-	onlyActive := ctx.QueryParam("only_active") == "true"
-	onlyVisible := ctx.QueryParam("only_visible") == "true"
+// GetRootMenusForUser - Get only root menus (parent_id is NULL) for a user
+func (c *MenusController) GetRootMenusForUser(ctx echo.Context) error {
+	userID := ctx.QueryParam("user_id")
+	if userID == "" {
+		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "user_id is required"})
+	}
 
-	var query string
-	var args []interface{}
-	argIndex := 0
-
-	baseQuery := `
-		SELECT m.menus_id, m.menu_code, m.menu_name, m.parent_id, 
-		       NULL as parent_name, m.icon_name, m.route, m.menu_order, 
-		       m.is_visible, m.is_active, m.created_at, m.created_by, 
-		       m.updated_at, m.updated_by
-		FROM menus m
-		WHERE m.parent_id IS NULL
+	// Call procedure and filter for root menus only
+	query := `
+		SELECT * FROM security.get_user_menus($1)
 	`
 
-	conditions := []string{}
-
-	if search != "" {
-		argIndex++
-		conditions = append(conditions, "(m.menu_code ILIKE $"+strconv.Itoa(argIndex)+" OR m.menu_name ILIKE $"+strconv.Itoa(argIndex)+")")
-		args = append(args, "%"+search+"%")
-	}
-
-	if onlyActive {
-		argIndex++
-		conditions = append(conditions, "m.is_active = $"+strconv.Itoa(argIndex))
-		args = append(args, true)
-	}
-
-	if onlyVisible {
-		argIndex++
-		conditions = append(conditions, "m.is_visible = $"+strconv.Itoa(argIndex))
-		args = append(args, true)
-	}
-
-	if len(conditions) > 0 {
-		query = baseQuery + " AND " + conditions[0]
-		for i := 1; i < len(conditions); i++ {
-			query += " AND " + conditions[i]
-		}
-	} else {
-		query = baseQuery
-	}
-
-	query += " ORDER BY m.menu_order, m.menu_name"
-
-	rows, err := c.DB.Query(query, args...)
+	rows, err := c.DB.Query(query, userID)
 	if err != nil {
 		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch root menus"})
 	}
@@ -247,16 +119,15 @@ func (c *MenusController) GetRootMenus(ctx echo.Context) error {
 			&menu.MenuCode,
 			&menu.MenuName,
 			&menu.ParentID,
-			&menu.ParentName,
 			&menu.IconName,
 			&menu.Route,
 			&menu.MenuOrder,
-			&menu.IsVisible,
-			&menu.IsActive,
-			&menu.CreatedAt,
-			&menu.CreatedBy,
-			&menu.UpdatedAt,
-			&menu.UpdatedBy,
+			&menu.CanView,
+			&menu.CanCreate,
+			&menu.CanModify,
+			&menu.CanDelete,
+			&menu.CanUpload,
+			&menu.CanDownload,
 		)
 		if err != nil {
 			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to scan root menu"})
@@ -272,107 +143,69 @@ func (c *MenusController) GetRootMenus(ctx echo.Context) error {
 	return ctx.JSON(http.StatusOK, response)
 }
 
-// GetMenuById - Get specific menu by ID
-func (c *MenusController) GetMenuById(ctx echo.Context) error {
-	id := ctx.Param("id")
-
-	query := `
-		SELECT m.menus_id, m.menu_code, m.menu_name, m.parent_id, p.menu_name as parent_name,
-			   m.icon_name, m.route, m.menu_order, m.is_visible, m.is_active,
-			   m.created_at, m.created_by, m.updated_at, m.updated_by
-		FROM menus m
-		LEFT JOIN menus p ON m.parent_id = p.menus_id
-		WHERE m.menus_id = $1
-	`
-
-	var menu Menu
-	err := c.DB.QueryRow(query, id).Scan(
-		&menu.MenusID,
-		&menu.MenuCode,
-		&menu.MenuName,
-		&menu.ParentID,
-		&menu.ParentName,
-		&menu.IconName,
-		&menu.Route,
-		&menu.MenuOrder,
-		&menu.IsVisible,
-		&menu.IsActive,
-		&menu.CreatedAt,
-		&menu.CreatedBy,
-		&menu.UpdatedAt,
-		&menu.UpdatedBy,
-	)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return ctx.JSON(http.StatusNotFound, map[string]string{"error": "Menu not found"})
-		}
-		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch menu"})
-	}
-
-	response := map[string]interface{}{
-		"data": menu,
-	}
-
-	return ctx.JSON(http.StatusOK, response)
-}
-
-// GetMenuBreadcrumb - Get breadcrumb path for a specific menu
+// GetMenuBreadcrumb - Using procedure for breadcrumb
 func (c *MenusController) GetMenuBreadcrumb(ctx echo.Context) error {
 	menuID := ctx.Param("id")
+	userID := ctx.QueryParam("user_id")
 
-	// Find menu by ID first (support both menus_id and route)
+	if userID == "" {
+		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "user_id is required"})
+	}
+
+	// First, get the target menu ID
 	var targetMenuID int
 	var err error
 
-	// Try to parse as integer first
 	if id, parseErr := strconv.Atoi(menuID); parseErr == nil {
 		targetMenuID = id
 	} else {
-		// If not integer, search by route
-		query := `SELECT menus_id FROM menus WHERE route = $1`
-		err = c.DB.QueryRow(query, menuID).Scan(&targetMenuID)
+		// Search by route in user's accessible menus
+		query := `
+			SELECT menus_id FROM security.get_user_menus($1) 
+			WHERE route = $2 LIMIT 1
+		`
+		err = c.DB.QueryRow(query, userID, menuID).Scan(&targetMenuID)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				return ctx.JSON(http.StatusNotFound, map[string]string{"error": "Menu not found"})
+				return ctx.JSON(http.StatusNotFound, map[string]string{"error": "Menu not found or not accessible"})
 			}
 			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to find menu"})
 		}
 	}
 
-	// Recursive CTE to get breadcrumb path
+	// Get breadcrumb using recursive CTE with user permissions
 	query := `
 		WITH RECURSIVE breadcrumb_path AS (
 			-- Base case: start with the target menu
 			SELECT 
-				m.menus_id,
-				m.menu_name,
-				COALESCE(m.route, '') as route,
-				m.menu_order,
-				m.parent_id,
+				um.menus_id,
+				um.menu_name,
+				COALESCE(um.route, '') as route,
+				um.menu_order,
+				um.parent_id,
 				0 as level
-			FROM menus m
-			WHERE m.menus_id = $1
+			FROM security.get_user_menus($1) um
+			WHERE um.menus_id = $2
 			
 			UNION ALL
 			
 			-- Recursive case: get parent menus
 			SELECT 
-				m.menus_id,
-				m.menu_name,
-				COALESCE(m.route, '') as route,
-				m.menu_order,
-				m.parent_id,
+				um.menus_id,
+				um.menu_name,
+				COALESCE(um.route, '') as route,
+				um.menu_order,
+				um.parent_id,
 				bp.level + 1 as level
-			FROM menus m
-			INNER JOIN breadcrumb_path bp ON m.menus_id = bp.parent_id
+			FROM security.get_user_menus($1) um
+			INNER JOIN breadcrumb_path bp ON um.menus_id = bp.parent_id
 		)
 		SELECT menus_id, menu_name, route, menu_order, level
 		FROM breadcrumb_path
 		ORDER BY level DESC
 	`
 
-	rows, err := c.DB.Query(query, targetMenuID)
+	rows, err := c.DB.Query(query, userID, targetMenuID)
 	if err != nil {
 		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch breadcrumb"})
 	}
@@ -395,7 +228,7 @@ func (c *MenusController) GetMenuBreadcrumb(ctx echo.Context) error {
 	}
 
 	if len(breadcrumbs) == 0 {
-		return ctx.JSON(http.StatusNotFound, map[string]string{"error": "Menu not found"})
+		return ctx.JSON(http.StatusNotFound, map[string]string{"error": "Menu not found or not accessible"})
 	}
 
 	response := map[string]interface{}{
@@ -405,54 +238,22 @@ func (c *MenusController) GetMenuBreadcrumb(ctx echo.Context) error {
 	return ctx.JSON(http.StatusOK, response)
 }
 
-// GetChildMenus - Get all child menus for a parent
-func (c *MenusController) GetChildMenus(ctx echo.Context) error {
+// GetChildMenusForUser - Get child menus for a parent using procedure
+func (c *MenusController) GetChildMenusForUser(ctx echo.Context) error {
 	parentID := ctx.Param("parent_id")
-	onlyActive := ctx.QueryParam("only_active") == "true"
-	onlyVisible := ctx.QueryParam("only_visible") == "true"
+	userID := ctx.QueryParam("user_id")
 
-	var query string
-	var args []interface{}
-	argIndex := 0
+	if userID == "" {
+		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "user_id is required"})
+	}
 
-	baseQuery := `
-		SELECT m.menus_id, m.menu_code, m.menu_name, m.parent_id, p.menu_name as parent_name,
-			   m.icon_name, m.route, m.menu_order, m.is_visible, m.is_active,
-			   m.created_at, m.created_by, m.updated_at, m.updated_by
-		FROM menus m
-		LEFT JOIN menus p ON m.parent_id = p.menus_id
-		WHERE m.parent_id = $1
+	query := `
+		SELECT * FROM security.get_user_menus($1)
+		WHERE parent_id = $2
+		ORDER BY menu_order, menu_name
 	`
 
-	argIndex++
-	args = append(args, parentID)
-
-	conditions := []string{}
-
-	if onlyActive {
-		argIndex++
-		conditions = append(conditions, "m.is_active = $"+strconv.Itoa(argIndex))
-		args = append(args, true)
-	}
-
-	if onlyVisible {
-		argIndex++
-		conditions = append(conditions, "m.is_visible = $"+strconv.Itoa(argIndex))
-		args = append(args, true)
-	}
-
-	if len(conditions) > 0 {
-		query = baseQuery + " AND " + conditions[0]
-		for i := 1; i < len(conditions); i++ {
-			query += " AND " + conditions[i]
-		}
-	} else {
-		query = baseQuery
-	}
-
-	query += " ORDER BY m.menu_order, m.menu_name"
-
-	rows, err := c.DB.Query(query, args...)
+	rows, err := c.DB.Query(query, userID, parentID)
 	if err != nil {
 		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch child menus"})
 	}
@@ -466,16 +267,15 @@ func (c *MenusController) GetChildMenus(ctx echo.Context) error {
 			&menu.MenuCode,
 			&menu.MenuName,
 			&menu.ParentID,
-			&menu.ParentName,
 			&menu.IconName,
 			&menu.Route,
 			&menu.MenuOrder,
-			&menu.IsVisible,
-			&menu.IsActive,
-			&menu.CreatedAt,
-			&menu.CreatedBy,
-			&menu.UpdatedAt,
-			&menu.UpdatedBy,
+			&menu.CanView,
+			&menu.CanCreate,
+			&menu.CanModify,
+			&menu.CanDelete,
+			&menu.CanUpload,
+			&menu.CanDownload,
 		)
 		if err != nil {
 			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to scan child menu"})
@@ -491,447 +291,45 @@ func (c *MenusController) GetChildMenus(ctx echo.Context) error {
 	return ctx.JSON(http.StatusOK, response)
 }
 
-// GetHierarchicalMenus - Get complete hierarchical menu structure
-func (c *MenusController) GetHierarchicalMenus(ctx echo.Context) error {
-	parentID := ctx.QueryParam("parent_id")
-	onlyActive := ctx.QueryParam("only_active") == "true"
-	onlyVisible := ctx.QueryParam("only_visible") == "true"
-
-	var query string
-	var args []interface{}
-	argIndex := 0
-
-	baseQuery := `
-		WITH RECURSIVE menu_hierarchy AS (
-			-- Base case: get root menus or menus with specific parent
-			SELECT 
-				m.menus_id,
-				m.menu_code,
-				m.menu_name,
-				m.parent_id,
-				m.icon_name,
-				m.route,
-				m.menu_order,
-				m.is_visible,
-				m.is_active,
-				m.created_at,
-				m.created_by,
-				m.updated_at,
-				m.updated_by,
-				0 as level,
-				CAST(m.menu_order AS text) as path
-			FROM menus m
-			WHERE 1=1
-	`
-
-	conditions := []string{}
-
-	// Add parent filter
-	if parentID != "" {
-		if parentID == "null" {
-			conditions = append(conditions, "m.parent_id IS NULL")
-		} else {
-			argIndex++
-			conditions = append(conditions, "m.parent_id = $"+strconv.Itoa(argIndex))
-			args = append(args, parentID)
-		}
-	} else {
-		conditions = append(conditions, "m.parent_id IS NULL")
-	}
-
-	// Add active filter
-	if onlyActive {
-		argIndex++
-		conditions = append(conditions, "m.is_active = $"+strconv.Itoa(argIndex))
-		args = append(args, true)
-	}
-
-	// Add visible filter
-	if onlyVisible {
-		argIndex++
-		conditions = append(conditions, "m.is_visible = $"+strconv.Itoa(argIndex))
-		args = append(args, true)
-	}
-
-	// Build base query with conditions
-	if len(conditions) > 0 {
-		baseQuery += " AND " + conditions[0]
-		for i := 1; i < len(conditions); i++ {
-			baseQuery += " AND " + conditions[i]
-		}
-	}
-
-	// Add recursive part
-	query = baseQuery + `
-			UNION ALL
-			
-			-- Recursive case: get child menus
-			SELECT 
-				m.menus_id,
-				m.menu_code,
-				m.menu_name,
-				m.parent_id,
-				m.icon_name,
-				m.route,
-				m.menu_order,
-				m.is_visible,
-				m.is_active,
-				m.created_at,
-				m.created_by,
-				m.updated_at,
-				m.updated_by,
-				mh.level + 1 as level,
-				mh.path || '.' || CAST(m.menu_order AS text) as path
-			FROM menus m
-			INNER JOIN menu_hierarchy mh ON m.parent_id = mh.menus_id
-	`
-
-	// Add filters for recursive part
-	if onlyActive {
-		query += " WHERE m.is_active = true"
-		if onlyVisible {
-			query += " AND m.is_visible = true"
-		}
-	} else if onlyVisible {
-		query += " WHERE m.is_visible = true"
-	}
-
-	query += `
-		)
-		SELECT menus_id, menu_code, menu_name, parent_id, icon_name, route, 
-			   menu_order, is_visible, is_active, created_at, created_by, 
-			   updated_at, updated_by, level
-		FROM menu_hierarchy
-		ORDER BY path
-	`
-
-	rows, err := c.DB.Query(query, args...)
-	if err != nil {
-		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch hierarchical menus"})
-	}
-	defer rows.Close()
-
-	var menus []Menu
-	for rows.Next() {
-		var menu Menu
-		var level int
-		err := rows.Scan(
-			&menu.MenusID,
-			&menu.MenuCode,
-			&menu.MenuName,
-			&menu.ParentID,
-			&menu.IconName,
-			&menu.Route,
-			&menu.MenuOrder,
-			&menu.IsVisible,
-			&menu.IsActive,
-			&menu.CreatedAt,
-			&menu.CreatedBy,
-			&menu.UpdatedAt,
-			&menu.UpdatedBy,
-			&level,
-		)
-		if err != nil {
-			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to scan hierarchical menu"})
-		}
-		menus = append(menus, menu)
-	}
-
-	response := map[string]interface{}{
-		"data":          menus,
-		"total_records": len(menus),
-	}
-
-	return ctx.JSON(http.StatusOK, response)
-}
-func (c *MenusController) GetMenuByRoute(ctx echo.Context) error {
-	route := ctx.Param("route")
-
-	// URL decode the route parameter
-	decodedRoute, err := url.QueryUnescape(route)
-	if err != nil {
-		decodedRoute = route // fallback to original if decode fails
-	}
-
-	query := `
-		SELECT m.menus_id, m.menu_code, m.menu_name, m.parent_id, p.menu_name as parent_name,
-			   m.icon_name, m.route, m.menu_order, m.is_visible, m.is_active,
-			   m.created_at, m.created_by, m.updated_at, m.updated_by
-		FROM menus m
-		LEFT JOIN menus p ON m.parent_id = p.menus_id
-		WHERE m.route = $1 OR m.route = $2
-	`
-
-	var menu Menu
-	err = c.DB.QueryRow(query, route, decodedRoute).Scan(
-		&menu.MenusID,
-		&menu.MenuCode,
-		&menu.MenuName,
-		&menu.ParentID,
-		&menu.ParentName,
-		&menu.IconName,
-		&menu.Route,
-		&menu.MenuOrder,
-		&menu.IsVisible,
-		&menu.IsActive,
-		&menu.CreatedAt,
-		&menu.CreatedBy,
-		&menu.UpdatedAt,
-		&menu.UpdatedBy,
-	)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return ctx.JSON(http.StatusNotFound, map[string]string{"error": "Menu not found"})
-		}
-		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch menu"})
-	}
-
-	response := map[string]interface{}{
-		"data": menu,
-	}
-
-	return ctx.JSON(http.StatusOK, response)
-}
-
-// Add these methods to your MenusController struct
-
-// CreateMenu - Create new menu
-func (c *MenusController) CreateMenu(ctx echo.Context) error {
-	var menu Menu
-	if err := ctx.Bind(&menu); err != nil {
-		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
-	}
-
-	query := `
-		INSERT INTO menus (menu_code, menu_name, parent_id, icon_name, route, menu_order, is_visible, is_active, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING menus_id, created_at, updated_at
-	`
-
-	var menuID int
-	var createdAt, updatedAt string
-	err := c.DB.QueryRow(query,
-		menu.MenuCode,
-		menu.MenuName,
-		menu.ParentID,
-		menu.IconName,
-		menu.Route,
-		menu.MenuOrder,
-		menu.IsVisible,
-		menu.IsActive,
-		menu.CreatedBy,
-	).Scan(&menuID, &createdAt, &updatedAt)
-
-	if err != nil {
-		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create menu"})
-	}
-
-	menu.MenusID = menuID
-	menu.CreatedAt = createdAt
-	menu.UpdatedAt = updatedAt
-
-	return ctx.JSON(http.StatusCreated, map[string]interface{}{
-		"data":    menu,
-		"message": "Menu created successfully",
-	})
-}
-
-// UpdateMenu - Update existing menu
-func (c *MenusController) UpdateMenu(ctx echo.Context) error {
-	id := ctx.Param("id")
-	var menu Menu
-	if err := ctx.Bind(&menu); err != nil {
-		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
-	}
-
-	query := `
-		UPDATE menus 
-		SET menu_code = $1, menu_name = $2, parent_id = $3, icon_name = $4, route = $5, 
-		    menu_order = $6, is_visible = $7, is_active = $8, updated_by = $9, updated_at = CURRENT_TIMESTAMP
-		WHERE menus_id = $10
-		RETURNING updated_at
-	`
-
-	var updatedAt string
-	err := c.DB.QueryRow(query,
-		menu.MenuCode,
-		menu.MenuName,
-		menu.ParentID,
-		menu.IconName,
-		menu.Route,
-		menu.MenuOrder,
-		menu.IsVisible,
-		menu.IsActive,
-		menu.UpdatedBy,
-		id,
-	).Scan(&updatedAt)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return ctx.JSON(http.StatusNotFound, map[string]string{"error": "Menu not found"})
-		}
-		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to update menu"})
-	}
-
-	menu.UpdatedAt = updatedAt
-
-	return ctx.JSON(http.StatusOK, map[string]interface{}{
-		"data":    menu,
-		"message": "Menu updated successfully",
-	})
-}
-
-// DeleteMenu - Delete menu
-func (c *MenusController) DeleteMenu(ctx echo.Context) error {
-	id := ctx.Param("id")
-
-	// Check if menu has children
-	var childCount int
-	err := c.DB.QueryRow("SELECT COUNT(*) FROM menus WHERE parent_id = $1", id).Scan(&childCount)
-	if err != nil {
-		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to check menu children"})
-	}
-
-	if childCount > 0 {
-		return ctx.JSON(http.StatusConflict, map[string]string{"error": "Cannot delete menu with child menus"})
-	}
-
-	query := `DELETE FROM menus WHERE menus_id = $1`
-	result, err := c.DB.Exec(query, id)
-	if err != nil {
-		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to delete menu"})
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		return ctx.JSON(http.StatusNotFound, map[string]string{"error": "Menu not found"})
-	}
-
-	return ctx.JSON(http.StatusOK, map[string]interface{}{
-		"success": true,
-		"message": "Menu deleted successfully",
-	})
-}
-
-// GetAllDescendants - Get all descendants of a parent menu (unlimited depth)
-func (c *MenusController) GetAllDescendants(ctx echo.Context) error {
+// GetAllDescendantsForUser - Get all descendants for a user using procedure
+func (c *MenusController) GetAllDescendantsForUser(ctx echo.Context) error {
 	parentID := ctx.Param("parent_id")
-	onlyActive := ctx.QueryParam("only_active") == "true"
-	onlyVisible := ctx.QueryParam("only_visible") == "true"
+	userID := ctx.QueryParam("user_id")
 
-	var query string
-	var args []interface{}
-	argIndex := 0
+	if userID == "" {
+		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "user_id is required"})
+	}
 
-	// Recursive CTE to get all descendants
-	query = `
+	// Get all user menus first, then filter descendants
+	query := `
 		WITH RECURSIVE menu_descendants AS (
 			-- Base case: direct children
 			SELECT 
-				m.menus_id,
-				m.menu_code,
-				m.menu_name,
-				m.parent_id,
-				m.icon_name,
-				m.route,
-				m.menu_order,
-				m.is_visible,
-				m.is_active,
-				m.created_at,
-				m.created_by,
-				m.updated_at,
-				m.updated_by,
+				um.*,
 				0 as level,
-				CAST(m.menu_order AS text) as path
-			FROM menus m
-			WHERE m.parent_id = $1
-	`
-
-	argIndex++
-	args = append(args, parentID)
-
-	conditions := []string{}
-
-	if onlyActive {
-		argIndex++
-		conditions = append(conditions, "m.is_active = $"+strconv.Itoa(argIndex))
-		args = append(args, true)
-	}
-
-	if onlyVisible {
-		argIndex++
-		conditions = append(conditions, "m.is_visible = $"+strconv.Itoa(argIndex))
-		args = append(args, true)
-	}
-
-	// Add conditions to base case
-	if len(conditions) > 0 {
-		query += " AND " + strings.Join(conditions, " AND ")
-	}
-
-	// Recursive case: get descendants of descendants
-	query += `
+				CAST(um.menu_order AS text) as path
+			FROM security.get_user_menus($1) um
+			WHERE um.parent_id = $2
+			
 			UNION ALL
 			
 			-- Recursive case: children of children
 			SELECT 
-				m.menus_id,
-				m.menu_code,
-				m.menu_name,
-				m.parent_id,
-				m.icon_name,
-				m.route,
-				m.menu_order,
-				m.is_visible,
-				m.is_active,
-				m.created_at,
-				m.created_by,
-				m.updated_at,
-				m.updated_by,
+				um.*,
 				md.level + 1 as level,
-				md.path || '.' || CAST(m.menu_order AS text) as path
-			FROM menus m
-			INNER JOIN menu_descendants md ON m.parent_id = md.menus_id
-	`
-
-	// Add filters for recursive part
-	recursiveConditions := []string{}
-	if onlyActive {
-		recursiveConditions = append(recursiveConditions, "m.is_active = true")
-	}
-	if onlyVisible {
-		recursiveConditions = append(recursiveConditions, "m.is_visible = true")
-	}
-
-	if len(recursiveConditions) > 0 {
-		query += " WHERE " + strings.Join(recursiveConditions, " AND ")
-	}
-
-	// Final selection and ordering
-	query += `
+				md.path || '.' || CAST(um.menu_order AS text) as path
+			FROM security.get_user_menus($1) um
+			INNER JOIN menu_descendants md ON um.parent_id = md.menus_id
 		)
 		SELECT 
-			md.menus_id,
-			md.menu_code,
-			md.menu_name,
-			md.parent_id,
-			p.menu_name as parent_name,
-			md.icon_name,
-			md.route,
-			md.menu_order,
-			md.is_visible,
-			md.is_active,
-			md.created_at,
-			md.created_by,
-			md.updated_at,
-			md.updated_by
-		FROM menu_descendants md
-		LEFT JOIN menus p ON md.parent_id = p.menus_id
-		ORDER BY md.path
+			menus_id, menu_code, menu_name, parent_id, icon_name,
+			route, menu_order, can_view, can_create, can_modify,
+			can_delete, can_upload, can_download
+		FROM menu_descendants
+		ORDER BY path
 	`
 
-	rows, err := c.DB.Query(query, args...)
+	rows, err := c.DB.Query(query, userID, parentID)
 	if err != nil {
 		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch descendants"})
 	}
@@ -945,16 +343,15 @@ func (c *MenusController) GetAllDescendants(ctx echo.Context) error {
 			&menu.MenuCode,
 			&menu.MenuName,
 			&menu.ParentID,
-			&menu.ParentName,
 			&menu.IconName,
 			&menu.Route,
 			&menu.MenuOrder,
-			&menu.IsVisible,
-			&menu.IsActive,
-			&menu.CreatedAt,
-			&menu.CreatedBy,
-			&menu.UpdatedAt,
-			&menu.UpdatedBy,
+			&menu.CanView,
+			&menu.CanCreate,
+			&menu.CanModify,
+			&menu.CanDelete,
+			&menu.CanUpload,
+			&menu.CanDownload,
 		)
 		if err != nil {
 			return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to scan descendant menu"})
