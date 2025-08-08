@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"v01_system_backend/services"
@@ -51,7 +52,6 @@ func (lc *LoginController) Login(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, response)
 }
-
 func (lc *LoginController) Logout(c echo.Context) error {
 	tokenString := lc.extractTokenFromHeader(c)
 	if tokenString == "" {
@@ -63,11 +63,14 @@ func (lc *LoginController) Logout(c echo.Context) error {
 	clientIP := c.RealIP()
 	userAgent := c.Request().UserAgent()
 
-	// Call service (which calls stored procedure)
+	// ✅ Pastikan tokenString valid dan tidak kosong
 	err := lc.authService.Logout(tokenString, clientIP, userAgent)
 	if err != nil {
-		return c.JSON(http.StatusUnauthorized, map[string]string{
-			"error": err.Error(),
+		// ✅ Log error tapi tetap return success untuk logout
+		fmt.Printf("Logout error: %v\n", err)
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"success": true,
+			"message": "Logged out (with errors)",
 		})
 	}
 
@@ -76,7 +79,6 @@ func (lc *LoginController) Logout(c echo.Context) error {
 		"message": "Logout successful",
 	})
 }
-
 func (lc *LoginController) GetCurrentUser(c echo.Context) error {
 	// Get user info from context (set by middleware)
 	userID := c.Get("user_id")

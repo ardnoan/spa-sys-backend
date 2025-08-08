@@ -142,7 +142,7 @@ func (s *AuthService) ValidateSession(sessionToken string) (*SessionValidation, 
 // LOGOUT
 // =============================
 func (s *AuthService) Logout(sessionToken, ipAddress, userAgent string) error {
-	query := `SELECT security.logout_user($1, $2, $3)`
+	query := `SELECT security.simple_logout_user($1, $2, $3)`
 
 	var message string
 	err := s.db.QueryRow(query, sessionToken, ipAddress, userAgent).Scan(&message)
