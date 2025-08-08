@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthService struct {
@@ -53,36 +52,12 @@ func NewAuthService(db *sql.DB) *AuthService {
 	return &AuthService{db: db}
 }
 
+// =============================
+// LOGIN
+// =============================
 func (s *AuthService) Login(req LoginRequest, ipAddress, userAgent string) (*LoginResponse, error) {
-	// First, get user for password validation (we need to do this in Go for bcrypt)
-	user, err := s.getUserForPasswordValidation(req.Username)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			// Record failed login attempt
-			s.recordFailedLogin(req.Username, ipAddress, userAgent)
-			return &LoginResponse{
-				Success: false,
-				Message: "Invalid credentials",
-			}, nil
-		}
-		return nil, fmt.Errorf("database error: %v", err)
-	}
-
-	// Verify password with bcrypt
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		// Record failed login attempt through procedure
-		message, err := s.recordFailedLogin(req.Username, ipAddress, userAgent)
-		if err != nil {
-			return nil, fmt.Errorf("failed to record login attempt: %v", err)
-		}
-		return &LoginResponse{
-			Success: false,
-			Message: message,
-		}, nil
-	}
-
-	// Call stored procedure for login
-	result, err := s.callLoginProcedure(req.Username, ipAddress, userAgent)
+	// Call stored procedure login_user yang sudah handle pgcrypto password check
+	result, err := s.callLoginProcedure(req.Username, req.Password, ipAddress, userAgent)
 	if err != nil {
 		return nil, fmt.Errorf("login procedure error: %v", err)
 	}
@@ -123,6 +98,9 @@ func (s *AuthService) Login(req LoginRequest, ipAddress, userAgent string) (*Log
 	}, nil
 }
 
+// =============================
+// VALIDATE TOKEN
+// =============================
 func (s *AuthService) ValidateToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -143,6 +121,9 @@ func (s *AuthService) ValidateToken(tokenString string) (*Claims, error) {
 	return claims, nil
 }
 
+// =============================
+// VALIDATE SESSION
+// =============================
 func (s *AuthService) ValidateSession(sessionToken string) (*SessionValidation, error) {
 	query := `SELECT * FROM security.validate_session($1)`
 
@@ -157,6 +138,9 @@ func (s *AuthService) ValidateSession(sessionToken string) (*SessionValidation, 
 	return &result, nil
 }
 
+// =============================
+// LOGOUT
+// =============================
 func (s *AuthService) Logout(sessionToken, ipAddress, userAgent string) error {
 	query := `SELECT security.logout_user($1, $2, $3)`
 
@@ -173,31 +157,9 @@ func (s *AuthService) Logout(sessionToken, ipAddress, userAgent string) error {
 	return nil
 }
 
-// Helper methods (database calls)
-type userForPasswordValidation struct {
-	UserAppsID   int    `json:"user_apps_id"`
-	Username     string `json:"username"`
-	PasswordHash string `json:"-"`
-}
-
-func (s *AuthService) getUserForPasswordValidation(username string) (*userForPasswordValidation, error) {
-	query := `
-        SELECT user_apps_id, username, password_hash
-        FROM security.users_application 
-        WHERE username = $1 OR email = $1
-    `
-
-	user := &userForPasswordValidation{}
-	row := s.db.QueryRow(query, username)
-
-	err := row.Scan(&user.UserAppsID, &user.Username, &user.PasswordHash)
-	if err != nil {
-		return nil, err
-	}
-
-	return user, nil
-}
-
+// =============================
+// DB CALL - LOGIN PROCEDURE
+// =============================
 type procedureLoginResult struct {
 	Success  bool            `json:"success"`
 	Message  string          `json:"message"`
@@ -206,14 +168,14 @@ type procedureLoginResult struct {
 	UserInfo json.RawMessage `json:"user_info"`
 }
 
-func (s *AuthService) callLoginProcedure(username, ipAddress, userAgent string) (*procedureLoginResult, error) {
+func (s *AuthService) callLoginProcedure(username, password, ipAddress, userAgent string) (*procedureLoginResult, error) {
 	query := `
 		SELECT success, message, user_id, user_info
-		FROM security.login_user($1, ''::text, $2::inet, $3)
+		FROM security.login_user($1, $2, $3::inet, $4)
 	`
 
 	var result procedureLoginResult
-	err := s.db.QueryRow(query, username, ipAddress, userAgent).Scan(
+	err := s.db.QueryRow(query, username, password, ipAddress, userAgent).Scan(
 		&result.Success,
 		&result.Message,
 		&result.UserID,
@@ -223,7 +185,7 @@ func (s *AuthService) callLoginProcedure(username, ipAddress, userAgent string) 
 		return nil, err
 	}
 
-	// Extract username from JSON user_info kalau memang disimpan di situ
+	// Extract username from JSON user_info
 	var userInfoMap map[string]interface{}
 	if err := json.Unmarshal(result.UserInfo, &userInfoMap); err == nil {
 		if uname, ok := userInfoMap["username"].(string); ok {
@@ -232,16 +194,4 @@ func (s *AuthService) callLoginProcedure(username, ipAddress, userAgent string) 
 	}
 
 	return &result, nil
-}
-
-func (s *AuthService) recordFailedLogin(username, ipAddress, userAgent string) (string, error) {
-	query := `SELECT security.record_failed_login($1, $2, $3)`
-
-	var message string
-	err := s.db.QueryRow(query, username, ipAddress, userAgent).Scan(&message)
-	if err != nil {
-		return "Database error", err
-	}
-
-	return message, nil
 }
